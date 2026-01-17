@@ -1,4 +1,4 @@
-// app/page.tsx - Main Chat Interface (Redirects Admins)
+// app/page.tsx - Main Chat Interface (Redirects Admins & Parents)
 "use client";
 
 import { useState, useEffect } from "react";
@@ -42,6 +42,12 @@ export default function Home() {
       // ✅ REDIRECT ADMINS TO ADMIN DASHBOARD
       if (user.role === 'admin') {
         router.push('/admin');
+        return;
+      }
+      
+      // ✅ NEW: REDIRECT PARENTS TO PARENT PORTAL
+      if (user.role === 'parent') {
+        router.push('/parent');
         return;
       }
       
@@ -196,7 +202,7 @@ export default function Home() {
   }
 
   if (!currentUser) {
-    return null; // Will redirect to login or admin
+    return null; // Will redirect to login, admin, or parent portal
   }
 
   return (
@@ -208,7 +214,6 @@ export default function Home() {
             <div className="text-3xl">
               {selectedRole === "student" && "👨‍🎓"}
               {selectedRole === "teacher" && "👨‍🏫"}
-              {selectedRole === "parent" && "👨‍👩‍👧‍👦"}
             </div>
             <div>
               <h1 className="text-xl font-bold text-gray-800 capitalize">
@@ -262,11 +267,6 @@ export default function Home() {
                 Staff: {currentUser.teacherId}
               </span>
             )}
-            {currentUser.parentId && (
-              <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
-                Parent: {currentUser.parentId}
-              </span>
-            )}
           </div>
         </div>
       </div>
@@ -297,22 +297,6 @@ export default function Home() {
                     </div>
                     <div className="bg-white p-4 rounded-lg shadow hover:shadow-md transition-shadow">
                       <span className="text-lg">🎯</span> "Show my performance"
-                    </div>
-                  </>
-                )}
-                {selectedRole === "parent" && (
-                  <>
-                    <div className="bg-white p-4 rounded-lg shadow hover:shadow-md transition-shadow">
-                      <span className="text-lg">👶</span> "Who are my children?"
-                    </div>
-                    <div className="bg-white p-4 rounded-lg shadow hover:shadow-md transition-shadow">
-                      <span className="text-lg">📊</span> "Show attendance"
-                    </div>
-                    <div className="bg-white p-4 rounded-lg shadow hover:shadow-md transition-shadow">
-                      <span className="text-lg">📈</span> "How is performance?"
-                    </div>
-                    <div className="bg-white p-4 rounded-lg shadow hover:shadow-md transition-shadow">
-                      <span className="text-lg">💰</span> "Check fee status"
                     </div>
                   </>
                 )}

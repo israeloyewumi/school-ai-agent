@@ -1,4 +1,4 @@
-// components/teacher/AttendanceRecorder.tsx - Voice-Based Attendance Recording (No Security Questions)
+// components/teacher/AttendanceRecorder.tsx - FIXED: Handle Student objects correctly
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -8,6 +8,7 @@ import { createDetailedAuditLog } from '@/lib/firebase/auditLogs';
 import { markAttendance } from '@/lib/firebase/db';
 import { Timestamp } from 'firebase/firestore';
 import { smartParseNumber } from '@/lib/utils/numberParser';
+import type { Student } from '@/types/database';
 
 interface AttendanceRecorderProps {
   teacherId: string;
@@ -15,7 +16,7 @@ interface AttendanceRecorderProps {
   classId: string;
   className: string;
   totalStudents: number;
-  studentList: { id: string; name: string }[];
+  studentList: Student[]; // ✅ FIXED: Changed from { id: string; name: string }[] to Student[]
   term: string;
   session: string;
   onComplete: () => void;
@@ -52,8 +53,9 @@ export default function AttendanceRecorder({
     voiceService.speak(`Recording attendance for ${className}. There are ${totalStudents} students enrolled. Say "confirm" to continue, or "cancel" to abort.`);
     
     return () => {
+      // Only stop listening, don't stop speaking (let speech finish)
       voiceService.stopListening();
-      voiceService.stopSpeaking();
+      // Don't call voiceService.stopSpeaking() - let completion messages finish
     };
   }, []);
 
@@ -90,7 +92,6 @@ export default function AttendanceRecorder({
         break;
         
       case 'count-present':
-        // Parse number from speech (handles "two", "twenty three", "2", etc.)
         const count = smartParseNumber(text);
         if (count !== null && count >= 0 && count <= totalStudents) {
           setPresentCount(count);
@@ -114,13 +115,15 @@ export default function AttendanceRecorder({
         const matchedStudent = findStudentByName(text);
         
         if (matchedStudent) {
-          const newAbsentList = [...absentStudentNames, matchedStudent.name];
+          // ✅ FIXED: Build full name from firstName and lastName
+          const fullName = `${matchedStudent.firstName} ${matchedStudent.lastName}`;
+          const newAbsentList = [...absentStudentNames, fullName];
           setAbsentStudentNames(newAbsentList);
           
           const expectedAbsent = totalStudents - (presentCount || 0);
           
           if (newAbsentList.length < expectedAbsent) {
-            voiceService.speak(`${matchedStudent.name} marked as absent. ${expectedAbsent - newAbsentList.length} more to go.`);
+            voiceService.speak(`${fullName} marked as absent. ${expectedAbsent - newAbsentList.length} more to go.`);
           } else {
             voiceService.speak(`All absent students recorded. Let me read them back: ${newAbsentList.join(', ')}. Say "confirm" to save, or "modify" to make changes.`);
             prepareAttendanceRecords(presentCount!, newAbsentList);
@@ -133,7 +136,6 @@ export default function AttendanceRecorder({
         
       case 'confirm':
         if (lowerText.includes('confirm') || lowerText.includes('yes')) {
-          // Check edit window before proceeding
           checkEditWindowAndProceed();
         } else if (lowerText.includes('modify') || lowerText.includes('change')) {
           setStep('count-present');
@@ -147,34 +149,61 @@ export default function AttendanceRecorder({
     }
   }
 
-  function findStudentByName(spokenName: string): { id: string; name: string } | null {
+  // ✅ FIXED: Updated to work with Student objects
+  function findStudentByName(spokenName: string): Student | null {
     const normalized = spokenName.toLowerCase().trim();
     
-    // Try exact match first
+    console.log('🔍 Searching for student:', normalized);
+    console.log('📋 Available students:', studentList.length);
+    
+    // Try exact match on full name
     for (const student of studentList) {
-      if (student.name.toLowerCase() === normalized) {
+      if (!student.firstName || !student.lastName) {
+        console.warn('⚠️ Student missing name fields:', student);
+        continue;
+      }
+      
+      const fullName = `${student.firstName} ${student.lastName}`.toLowerCase();
+      
+      if (fullName === normalized) {
+        console.log('✅ Exact match found:', fullName);
         return student;
       }
     }
     
-    // Try partial match (first name or last name)
+    // Try partial match (first name OR last name)
     for (const student of studentList) {
-      const nameParts = student.name.toLowerCase().split(' ');
-      if (nameParts.some(part => part === normalized || normalized.includes(part))) {
+      if (!student.firstName || !student.lastName) continue;
+      
+      const firstName = student.firstName.toLowerCase();
+      const lastName = student.lastName.toLowerCase();
+      
+      // Check if spoken name contains first name or last name
+      if (normalized.includes(firstName) || normalized.includes(lastName)) {
+        console.log('✅ Partial match found:', `${student.firstName} ${student.lastName}`);
+        return student;
+      }
+      
+      // Check if first name or last name contains spoken name
+      if (firstName.includes(normalized) || lastName.includes(normalized)) {
+        console.log('✅ Fuzzy match found:', `${student.firstName} ${student.lastName}`);
         return student;
       }
     }
     
+    console.log('❌ No match found for:', normalized);
     return null;
   }
 
+  // ✅ FIXED: Updated to use Student objects
   function prepareAttendanceRecords(present: number, absentNames: string[]) {
     const records = studentList.map(student => {
-      const isAbsent = absentNames.includes(student.name);
+      const fullName = `${student.firstName} ${student.lastName}`;
+      const isAbsent = absentNames.includes(fullName);
       
       return {
         studentId: student.id,
-        studentName: student.name,
+        studentName: fullName,
         classId,
         date: new Date(),
         status: isAbsent ? 'absent' : 'present',
@@ -193,7 +222,6 @@ export default function AttendanceRecorder({
     voiceService.speak('Checking permissions...');
     
     try {
-      // Check if within edit window
       const windowCheck = await isWithinEditWindow(term, session, 'attendance', classId);
       
       if (!windowCheck.allowed) {
@@ -203,7 +231,6 @@ export default function AttendanceRecorder({
         return;
       }
       
-      // No security verification needed - proceed directly to save
       voiceService.speak('Saving attendance...');
       saveAttendance();
     } catch (err: any) {
@@ -215,7 +242,6 @@ export default function AttendanceRecorder({
 
   async function saveAttendance() {
     try {
-      // Save all attendance records
       for (const record of attendanceRecords) {
         await markAttendance({
           studentId: record.studentId,
@@ -229,7 +255,6 @@ export default function AttendanceRecorder({
         });
       }
       
-      // Create audit log
       await createDetailedAuditLog({
         userId: teacherId,
         userRole: 'teacher',
@@ -242,19 +267,25 @@ export default function AttendanceRecorder({
         success: true
       });
       
-      voiceService.speak(`Attendance saved successfully. ${presentCount} students present, ${absentStudentNames.length} absent. Attendance forwarded to admin department.`);
+      // ✅ FIXED: Wait for speech to finish before closing
+      voiceService.speak(
+        `Attendance saved successfully. ${presentCount} students present, ${absentStudentNames.length} absent. Attendance forwarded to admin department.`,
+        {
+          onEnd: () => {
+            // Wait 2 seconds after speech finishes, then close
+            setTimeout(() => {
+              onComplete();
+            }, 2000);
+          }
+        }
+      );
       
       setStep('complete');
-      
-      setTimeout(() => {
-        onComplete();
-      }, 3000);
     } catch (err: any) {
       console.error('Error saving attendance:', err);
       setError(err.message);
       voiceService.speak('Error saving attendance. Please try again.');
       
-      // Log failed attempt
       await createDetailedAuditLog({
         userId: teacherId,
         userRole: 'teacher',

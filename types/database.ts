@@ -1,4 +1,4 @@
-// types/database.ts - Complete School Management Database Types (Phase A Update)
+// types/database.ts - Complete School Management Database Types (Enhanced with Subject Selection)
 
 // ============================================
 // USER & AUTHENTICATION
@@ -15,11 +15,11 @@ export interface User {
   phoneNumber?: string;
   profilePhoto?: string;
   isActive: boolean;
-  isPending: boolean; // NEW: For admin approval (teachers)
+  isPending: boolean; // For admin approval (teachers)
   createdAt: Date;
   updatedAt: Date;
   
-  // NEW: Approval tracking
+  // Approval tracking
   approvedBy?: string; // Admin user ID who approved
   approvedAt?: Date;
   rejectedBy?: string;
@@ -46,23 +46,23 @@ export interface School {
 
 export interface Class {
   id: string;
-  classId: string; // NEW: e.g., "grade_1a"
+  classId: string; // e.g., "grade_1a"
   name: string; // e.g., "Grade 1A"
-  className: string; // NEW: Same as name
-  grade: number; // NEW: 1-12
+  className: string; // Same as name
+  grade: number; // 1-12
   section: string; // e.g., "A", "B", "C", "D"
-  level: 'Primary' | 'Junior Secondary' | 'Senior Secondary'; // NEW
+  level: 'Primary' | 'Junior Secondary' | 'Senior Secondary';
   
   // Teacher assignments
-  classTeacher?: ClassTeacher; // NEW: Enhanced structure
+  classTeacher?: ClassTeacher; // Enhanced structure
   classTeacherId?: string; // Kept for backward compatibility
-  subjectTeachers: SubjectTeacherAssignment[]; // NEW
+  subjectTeachers: SubjectTeacherAssignment[];
   
   // Student info
   capacity: number;
   currentStudentCount: number;
-  totalStudents: number; // NEW: Alias for currentStudentCount
-  studentIds: string[]; // NEW
+  totalStudents: number; // Alias for currentStudentCount
+  studentIds: string[];
   
   // Academic info
   currentTerm: string;
@@ -74,14 +74,14 @@ export interface Class {
   updatedAt: Date;
 }
 
-// NEW: Class Teacher assignment structure
+// Class Teacher assignment structure
 export interface ClassTeacher {
   teacherId: string;
   teacherName: string;
   assignedDate: Date;
 }
 
-// NEW: Subject teacher assignment in class
+// Subject teacher assignment in class
 export interface SubjectTeacherAssignment {
   subjectId: string;
   subjectName: string;
@@ -92,18 +92,18 @@ export interface SubjectTeacherAssignment {
 
 export interface Subject {
   id: string;
-  subjectId: string; // NEW: e.g., "mathematics"
+  subjectId: string; // e.g., "mathematics"
   name: string;
-  subjectName: string; // NEW: Same as name
+  subjectName: string; // Same as name
   code: string;
   description?: string;
-  category: 'Core' | 'Science' | 'Arts' | 'Commercial' | 'Vocational' | 'Religious'; // UPDATED
-  isCore: boolean; // NEW
+  category: 'Core' | 'Science' | 'Arts' | 'Commercial' | 'Vocational' | 'Religious' | 'Language' | 'Elective';
+  isCore: boolean;
   
-  // NEW: Teacher assignments
+  // Teacher assignments
   teachers: SubjectTeacher[];
   
-  // NEW: Applicable levels
+  // Applicable levels
   applicableLevels: ('Primary' | 'Junior Secondary' | 'Senior Secondary')[];
   applicableGrades: number[];
   
@@ -112,7 +112,7 @@ export interface Subject {
   updatedAt: Date;
 }
 
-// NEW: Subject teacher assignment structure
+// Subject teacher assignment structure
 export interface SubjectTeacher {
   teacherId: string;
   teacherName: string;
@@ -121,31 +121,61 @@ export interface SubjectTeacher {
 }
 
 // ============================================
-// STUDENTS
+// ACADEMIC TRACK TYPE (NEW)
+// ============================================
+
+export type AcademicTrack = 'Science' | 'Arts' | 'Commercial' | null;
+
+// ============================================
+// STUDENTS (ENHANCED WITH SUBJECT SELECTION)
 // ============================================
 
 export interface Student {
   id: string;
   userId: string;
-  studentId: string; // NEW: Unique student identifier
+  studentId: string;
   admissionNumber: string;
-  classId: string;
-  className: string; // NEW
-  dateOfBirth: Date;
+  
+  // Basic Info (THESE ARE USED)
+  firstName: string;
+  lastName: string;
   gender: 'male' | 'female';
-  bloodGroup?: string;
+  dateOfBirth: Date;
+  age: number;
+  
+  // Class Info
+  classId: string;
+  className: string;
+  
+  // Parent/Guardian
+  parentId: string;
+  guardianId: string;
+  
+  // Contact Info
   address: string;
   city: string;
   state: string;
-  admissionDate: Date;
-  guardianId: string;
-  parentId?: string; // NEW: Alias for guardianId
   emergencyContact: string;
   emergencyPhone: string;
+  
+  // Optional Medical Info
   medicalConditions?: string;
   allergies?: string;
+  bloodGroup?: string;
+  
+  // Academic Info
+  admissionDate: Date;
   previousSchool?: string;
+  
+  // Subject Selection
+  subjects: string[];
+  academicTrack?: AcademicTrack;
+  tradeSubject?: string;
+  
+  // Status
   isActive: boolean;
+  
+  // Timestamps
   createdAt: Date;
   updatedAt: Date;
 }
@@ -154,7 +184,7 @@ export interface Student {
 // TEACHERS (ENHANCED)
 // ============================================
 
-export type TeacherType = 'class_teacher' | 'subject_teacher' | 'both'; // NEW
+export type TeacherType = 'class_teacher' | 'subject_teacher' | 'both';
 
 export interface AssignedClass {
   classId: string;
@@ -170,48 +200,45 @@ export interface TeacherSubject {
 
 export interface Teacher {
   id: string;
-  teacherId: string; // NEW: Same as user ID
+  teacherId: string; // Same as user ID
   userId: string;
   staffId: string;
-  firstName: string; // NEW
-  lastName: string; // NEW
-  email: string; // NEW
-  phoneNumber?: string; // NEW
+  firstName: string;
+  lastName: string;
+  email: string;
+  phoneNumber?: string;
   qualification: string;
   specialization: string;
   dateOfJoining: Date;
   employmentType: 'full-time' | 'part-time' | 'contract';
   
-  // NEW: Enhanced teaching roles
+  // Enhanced teaching roles
   teacherType: TeacherType;
   isClassTeacher: boolean;
   isSubjectTeacher: boolean;
   
-  // NEW: Class teacher data (if applicable)
+  // Class teacher data (if applicable)
   assignedClass?: AssignedClass;
   classTeacherId?: string; // Kept for backward compatibility
   
   // Enhanced subject teaching
-  subjects: TeacherSubject[]; // NEW: Enhanced structure
+  subjects: TeacherSubject[];
   classes: string[]; // Kept for backward compatibility
   
   // Status
   isActive: boolean;
-  isPending: boolean; // NEW: For admin approval
+  isPending: boolean; // For admin approval
   
   // Metadata
-  yearsOfExperience?: number; // NEW
+  yearsOfExperience?: number;
   
   // Timestamps
   createdAt: Date;
   updatedAt: Date;
 }
 
-// ADD THIS ADMIN INTERFACE TO YOUR types/database.ts FILE
-// Place it after the Teacher interface (around line 200)
-
 // ============================================
-// ADMINS (NEW)
+// ADMINS
 // ============================================
 
 export type AdminDepartment = 'ceo' | 'principal' | 'vice_principal' | 'hod' | 'admin_staff';
@@ -296,10 +323,28 @@ export function getDepartmentDisplayName(department: AdminDepartment): string {
 export interface Parent {
   id: string;
   userId: string;
+  
+  // Basic Info (THESE ARE USED)
+  firstName: string;
+  lastName: string;
+  email: string;
+  phoneNumber: string;
+  
+  // Parent Details
   relationship: 'father' | 'mother' | 'guardian' | 'other';
   occupation?: string;
   workplace?: string;
+  address?: string;
+  
+  // Children
   children: string[];
+  
+  // Status
+  isActive: boolean;
+  
+  // Timestamps
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 // ============================================
@@ -310,14 +355,16 @@ export interface Attendance {
   id: string;
   studentId: string;
   classId: string;
+  className?: string;  // Used in parent access
   date: Date;
   status: 'present' | 'absent' | 'late' | 'excused';
   markedBy: string;
   markedAt: Date;
   reason?: string;
+  remarks?: string;  // Used in parent access
   term: string;
   session: string;
-  notes?: string; // NEW
+  notes?: string;
 }
 
 export interface AttendanceSummary {
@@ -359,6 +406,8 @@ export interface Merit {
   id: string;
   studentId: string;
   teacherId: string;
+  teacherName: string;  // Used in parent access
+  className?: string;   // Used in parent access
   points: number;
   category: MeritCategory;
   reason: string;
@@ -398,15 +447,16 @@ export interface Result {
   classId: string;
   term: string;
   session: string;
-  assessmentType: 'ca1' | 'ca2' | 'exam' | 'project' | 'assignment';
+  assessmentType: 'classwork' | 'homework' | 'ca1' | 'ca2' | 'exam' | 'project' | 'assignment';
   score: number;
   maxScore: number;
   grade?: string;
   remark?: string;
   teacherId: string;
+  teacherName?: string;  // ✅ This should exist (optional field)
   dateRecorded: Date;
-  locked?: boolean; // NEW
-  lockedAt?: Date; // NEW
+  locked?: boolean;
+  lockedAt?: Date;
 }
 
 export interface TermResult {
@@ -431,6 +481,8 @@ export interface TermResult {
 export interface SubjectResult {
   subjectId: string;
   subjectName: string;
+  classwork: number;  // Added
+  homework: number;   // NEW - Add this line
   ca1: number;
   ca2: number;
   exam: number;
@@ -441,7 +493,7 @@ export interface SubjectResult {
 }
 
 // ============================================
-// FEE MANAGEMENT
+// FEE MANAGEMENT (ENHANCED FOR MANUAL ENTRY)
 // ============================================
 
 export type FeeCategory = 
@@ -453,18 +505,9 @@ export type FeeCategory =
   | 'transport'
   | 'uniform'
   | 'books'
+  | 'pta'
   | 'excursion'
   | 'other';
-
-export interface FeeStructure {
-  id: string;
-  classId: string;
-  term: string;
-  session: string;
-  items: FeeItem[];
-  totalAmount: number;
-  dueDate: Date;
-}
 
 export interface FeeItem {
   category: FeeCategory;
@@ -473,30 +516,196 @@ export interface FeeItem {
   isMandatory: boolean;
 }
 
-export interface FeePayment {
+// Fee Structure - What each class should pay per term
+export interface FeeStructure {
   id: string;
-  studentId: string;
+  classId: string;
+  className: string;
   term: string;
   session: string;
-  amountPaid: number;
-  paymentMethod: 'cash' | 'bank_transfer' | 'card' | 'paystack' | 'other';
-  paymentReference: string;
-  paymentDate: Date;
-  receivedBy: string;
-  receiptNumber: string;
+  academicYear: string; // e.g., "2025/2026"
+  
+  // Fee breakdown
   items: FeeItem[];
+  totalAmount: number;
+  
+  // Dates
+  dueDate: Date;
+  
+  // Metadata
+  createdAt: Date;
+  createdBy: string;
+  updatedAt?: Date;
+  updatedBy?: string;
+  isActive: boolean;
 }
 
-export interface StudentFeeStatus {
+// Fee Payment - Individual payment record (ENHANCED)
+export interface FeePayment {
+  id: string;
+  
+  // Student & Parent Info
   studentId: string;
+  studentName: string;
+  studentClass: string;
+  studentAdmissionNumber?: string;
+  parentId: string;
+  parentName: string;
+  parentPhone?: string;
+  
+  // Payment Period
   term: string;
   session: string;
-  totalFees: number;
+  academicYear: string;
+  
+  // Payment Details
+  amountPaid: number;
+  paymentMethod: 'cash' | 'bank_transfer' | 'pos' | 'cheque' | 'card' | 'paystack' | 'other';
+  paymentDate: Date;
+  
+  // For bank transfers/cheques/POS
+  paymentReference: string; // Receipt/transaction reference
+  bankName?: string;
+  accountName?: string; // Who made the payment
+  chequeNumber?: string;
+  
+  // Receipt
+  receiptNumber: string; // Auto-generated: e.g., "RCP/2026/00001"
+  
+  // Fee Allocation (optional - which specific fees paid)
+  items?: FeeItem[]; // Which fees this payment covers
+  
+  // Recording & Verification
+  receivedBy: string; // Admin user ID who recorded payment
+  receivedByName: string;
+  recordedAt: Date;
+  
+  verifiedBy?: string; // Another admin who verified
+  verifiedByName?: string;
+  verifiedAt?: Date;
+  
+  // Status
+  status: 'pending' | 'verified' | 'cancelled';
+  
+  // Notes
+  notes?: string;
+  cancellationReason?: string;
+  
+  // Timestamps
+  createdAt: Date;
+  updatedAt?: Date;
+}
+
+// Student Fee Status - Current balance per student (SIMPLIFIED)
+export interface StudentFeeStatus {
+  id: string; // studentId-term-session
+  
+  // Student Info
+  studentId: string;
+  studentName: string;
+  studentClass: string;
+  classId: string;
+  
+  // Parent Info
+  parentId: string;
+  parentName?: string;
+  parentPhone?: string;
+  
+  // Fee Period
+  term: string;
+  session: string;
+  academicYear: string;
+  
+  // Amounts
+  totalFees: number; // Total expected from fee structure
+  amountPaid: number; // Sum of verified payments
+  balance: number; // totalFees - amountPaid
+  
+  // Payment Status
+  status: 'unpaid' | 'partial' | 'paid' | 'overdue';
+  
+  // Payment History
+  payments: string[]; // Array of FeePayment IDs
+  lastPaymentDate?: Date;
+  lastPaymentAmount?: number;
+  
+  // Due date
+  dueDate: Date;
+  isOverdue: boolean;
+  daysOverdue?: number;
+  
+  // Metadata
+  lastUpdated: Date;
+  updatedBy?: string;
+  createdAt: Date;
+}
+
+// Fee Payment Summary - For reports
+export interface FeePaymentSummary {
+  term: string;
+  session: string;
+  classId?: string;
+  className?: string;
+  
+  // Totals
+  totalStudents: number;
+  totalExpected: number;
+  totalCollected: number;
+  totalBalance: number;
+  
+  // Breakdown
+  paidInFull: number; // Number of students
+  partialPayment: number;
+  notPaid: number;
+  overdue: number;
+  
+  // Collection rate
+  collectionRate: number; // Percentage
+  
+  // By payment method
+  paymentMethodBreakdown: {
+    cash: number;
+    bankTransfer: number;
+    pos: number;
+    cheque: number;
+    card: number;
+    paystack: number;
+    other: number;
+  };
+  
+  generatedAt: Date;
+  generatedBy: string;
+}
+
+// Fee Defaulters Report
+export interface FeeDefaulter {
+  studentId: string;
+  studentName: string;
+  studentClass: string;
+  admissionNumber: string;
+  parentName: string;
+  parentPhone: string;
+  
+  totalExpected: number;
   amountPaid: number;
   balance: number;
-  status: 'paid' | 'partial' | 'unpaid' | 'overdue';
-  lastPaymentDate?: Date;
+  
   dueDate: Date;
+  daysOverdue: number;
+  
+  lastPaymentDate?: Date;
+  lastPaymentAmount?: number;
+  
+  term: string;
+  session: string;
+}
+
+// Receipt Number Generator Config
+export interface ReceiptNumberConfig {
+  prefix: string; // e.g., "RCP"
+  year: string; // e.g., "2026"
+  lastNumber: number; // Last used number
+  format: string; // e.g., "RCP/2026/00001"
 }
 
 // ============================================
@@ -627,7 +836,97 @@ export interface SchoolAnalytics {
 }
 
 // ============================================
-// PENDING APPROVALS (NEW FOR PHASE A)
+// WEEKLY HISTORY REPORTS (NEW)
+// ============================================
+
+export interface WeeklyHistoryReport {
+  id: string;
+  studentId: string;
+  studentName: string;
+  classId: string;
+  className: string;
+  weekStart: Date;
+  weekEnd: Date;
+  term: string;
+  session: string;
+  
+  // Summary statistics
+  summary: WeeklyHistorySummary;
+  
+  // Detailed records
+  attendance: WeeklyAttendanceRecord[];
+  merits: WeeklyMeritRecord[];
+  grades: WeeklyGradeRecord[];
+  
+  // Metadata
+  generatedAt: Date;
+  generatedBy: string;
+  requestedBy?: string;
+}
+
+export interface WeeklyHistorySummary {
+  attendancePercentage: number;
+  totalAttendanceRecords: number;
+  presentCount: number;
+  absentCount: number;
+  lateCount: number;
+  excusedCount: number;
+  
+  totalMerits: number;
+  totalMeritRecords: number;
+  positivePoints: number;
+  negativePoints: number;
+  
+  totalGradeRecords: number;
+  gradesByType: {
+    classwork: number;
+    homework: number;
+    ca1: number;
+    ca2: number;
+    exam: number;
+  };
+  averageScore?: number;
+}
+
+export interface WeeklyAttendanceRecord {
+  id: string;
+  date: Date;
+  status: 'present' | 'absent' | 'late' | 'excused';
+  subjectId?: string;
+  subjectName?: string;
+  teacherId: string;
+  teacherName: string;
+  remarks?: string;
+}
+
+export interface WeeklyMeritRecord {
+  id: string;
+  date: Date;
+  points: number;
+  category: MeritCategory;
+  reason: string;
+  subjectId?: string;
+  subjectName?: string;
+  teacherId: string;
+  teacherName: string;
+}
+
+export interface WeeklyGradeRecord {
+  id: string;
+  date: Date;
+  subjectId: string;
+  subjectName: string;
+  assessmentType: 'classwork' | 'homework' | 'ca1' | 'ca2' | 'exam';
+  score: number;
+  maxScore: number;
+  percentage: number;
+  teacherId: string;
+  teacherName: string;
+  remarks?: string;
+}
+
+// ============================================
+// PENDING APPROVALS
 // ============================================
 
 export interface PendingTeacherApproval {
@@ -659,6 +958,50 @@ export interface PendingTeacherApproval {
   reviewNotes?: string;
 }
 
+// ADD THIS INTERFACE TO types/database.ts after PendingTeacherApproval
+
+// ============================================
+// PENDING PARENT APPROVALS (NEW)
+// ============================================
+
+export interface PendingParentApproval {
+  id?: string;
+  userId: string;
+  parentId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phoneNumber?: string;
+  
+  // Parent-specific details
+  relationship: 'father' | 'mother' | 'guardian' | 'other';
+  occupation?: string;
+  workplace?: string;
+  address?: string;
+  
+  // Children data
+  children: {
+    firstName: string;
+    lastName: string;
+    gender: 'male' | 'female';
+    dateOfBirth: Date;
+    age: number;
+    classId: string;
+    className: string;
+    grade: number;
+    subjects: string[];
+    academicTrack?: AcademicTrack;
+    tradeSubject?: string;
+  }[];
+  
+  // Status
+  status: 'pending' | 'approved' | 'rejected';
+  submittedAt: Date;
+  reviewedBy?: string;
+  reviewedAt?: Date;
+  reviewNotes?: string;
+}
+
 // ============================================
 // AUDIT LOGS & SECURITY
 // ============================================
@@ -667,8 +1010,8 @@ export type AuditAction =
   | 'USER_REGISTERED'
   | 'USER_LOGIN'
   | 'USER_LOGOUT'
-  | 'TEACHER_APPROVED' // NEW
-  | 'TEACHER_REJECTED' // NEW
+  | 'TEACHER_APPROVED'
+  | 'TEACHER_REJECTED'
   | 'ATTENDANCE_RECORDED'
   | 'GRADE_ENTERED'
   | 'GRADE_MODIFIED'
@@ -678,8 +1021,8 @@ export type AuditAction =
   | 'REPORT_SENT'
   | 'DATA_DELETED'
   | 'BULK_OPERATION'
-  | 'CLASS_TEACHER_ASSIGNED' // NEW
-  | 'SUBJECT_TEACHER_ASSIGNED' // NEW
+  | 'CLASS_TEACHER_ASSIGNED'
+  | 'SUBJECT_TEACHER_ASSIGNED'
   | 'DATA_LOCKED'
   | 'DATA_UNLOCKED';
 
@@ -696,7 +1039,7 @@ export interface DetailedAuditLog {
   afterData?: any;
   ipAddress?: string;
   deviceInfo?: string;
-  userAgent?: string; // NEW
+  userAgent?: string;
   timestamp: Date;
   success: boolean;
   errorMessage?: string;
@@ -708,7 +1051,7 @@ export interface DetailedAuditLog {
 
 export interface DataLock {
   id: string;
-  entityType: 'attendance' | 'result' | 'merit' | 'fee' | 'ca1' | 'ca2' | 'exam'; // UPDATED
+  entityType: 'attendance' | 'result' | 'merit' | 'fee' | 'classwork' | 'homework' | 'ca1' | 'ca2' | 'exam';
   entityId: string;
   classId?: string;
   term: string;
@@ -725,7 +1068,7 @@ export interface EditWindow {
   id: string;
   term: string;
   session: string;
-  assessmentType: 'ca1' | 'ca2' | 'exam' | 'attendance' | 'merit';
+  assessmentType: 'classwork' | 'homework' | 'ca1' | 'ca2' | 'exam' | 'attendance' | 'merit';
   startDate: Date;
   endDate: Date;
   isActive: boolean;
@@ -930,7 +1273,7 @@ export interface GradeSubmissionStatus {
   subjectId: string;
   term: string;
   session: string;
-  assessmentType: 'ca1' | 'ca2' | 'exam';
+  assessmentType: 'classwork' | 'homework' | 'ca1' | 'ca2' | 'exam';
   totalStudents: number;
   submittedCount: number;
   pendingCount: number;

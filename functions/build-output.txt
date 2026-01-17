@@ -1,0 +1,42 @@
+
+> build
+> tsc
+
+src/lib/ai/adminChatAgent.ts(755,17): error TS2322: Type '({ name: string; description: string; parameters: { type: SchemaType; properties: { term: { type: string; description: string; }; session: { type: string; description: string; }; searchTerm?: undefined; ... 11 more ...; date?: undefined; }; required?: undefined; }; } | ... 12 more ... | { ...; })[]' is not assignable to type 'FunctionDeclaration[]'.
+  Type '{ name: string; description: string; parameters: { type: SchemaType; properties: { term: { type: string; description: string; }; session: { type: string; description: string; }; searchTerm?: undefined; ... 11 more ...; date?: undefined; }; required?: undefined; }; } | ... 12 more ... | { ...; }' is not assignable to type 'FunctionDeclaration'.
+    Type '{ name: string; description: string; parameters: { type: SchemaType; properties: { term: { type: string; description: string; }; session: { type: string; description: string; }; searchTerm?: undefined; ... 11 more ...; date?: undefined; }; required?: undefined; }; }' is not assignable to type 'FunctionDeclaration'.
+      The types of 'parameters.properties' are incompatible between these types.
+        Type '{ term: { type: string; description: string; }; session: { type: string; description: string; }; searchTerm?: undefined; limit?: undefined; classId?: undefined; statusFilter?: undefined; studentId?: undefined; ... 7 more ...; date?: undefined; }' is not assignable to type '{ [k: string]: Schema; }'.
+          Property 'term' is incompatible with index signature.
+            Type '{ type: string; description: string; }' is not assignable to type 'Schema'.
+              Property 'properties' is missing in type '{ type: string; description: string; }' but required in type 'ObjectSchema'.
+src/lib/ai/agent.ts(412,9): error TS2322: Type '({ name: string; description: string; parameters: { type: string; properties: { studentId: { type: string; description: string; }; term?: undefined; session?: undefined; classId?: undefined; parentId?: undefined; teacherId?: undefined; subjectId?: undefined; limit?: undefined; }; required: string[]; }; } | ... 8 mor...' is not assignable to type 'FunctionDeclaration[]'.
+  Type '{ name: string; description: string; parameters: { type: string; properties: { studentId: { type: string; description: string; }; term?: undefined; session?: undefined; classId?: undefined; parentId?: undefined; teacherId?: undefined; subjectId?: undefined; limit?: undefined; }; required: string[]; }; } | ... 8 more...' is not assignable to type 'FunctionDeclaration'.
+    Type '{ name: string; description: string; parameters: { type: string; properties: { studentId: { type: string; description: string; }; term?: undefined; session?: undefined; classId?: undefined; parentId?: undefined; teacherId?: undefined; subjectId?: undefined; limit?: undefined; }; required: string[]; }; }' is not assignable to type 'FunctionDeclaration'.
+      The types of 'parameters.type' are incompatible between these types.
+        Type 'string' is not assignable to type 'SchemaType'.
+src/lib/ai/parentChatAgent.ts(371,9): error TS2322: Type '{ name: string; description: string; parameters: { type: string; properties: { studentId: { type: string; description: string; }; term: { type: string; description: string; }; session: { type: string; description: string; }; }; required: string[]; }; }[]' is not assignable to type 'FunctionDeclaration[]'.
+  Type '{ name: string; description: string; parameters: { type: string; properties: { studentId: { type: string; description: string; }; term: { type: string; description: string; }; session: { type: string; description: string; }; }; required: string[]; }; }' is not assignable to type 'FunctionDeclaration'.
+    The types of 'parameters.type' are incompatible between these types.
+      Type 'string' is not assignable to type 'SchemaType'.
+src/lib/firebase/adminReports.ts(793,9): error TS2322: Type '{ date: Date; status: "present" | "absent" | "late" | "excused"; }[]' is not assignable to type '{ date: Date; status: "present" | "absent"; }[]'.
+  Type '{ date: Date; status: "present" | "absent" | "late" | "excused"; }' is not assignable to type '{ date: Date; status: "present" | "absent"; }'.
+    Types of property 'status' are incompatible.
+      Type '"present" | "absent" | "late" | "excused"' is not assignable to type '"present" | "absent"'.
+        Type '"late"' is not assignable to type '"present" | "absent"'.
+src/lib/firebase/auditLogs.ts(138,7): error TS2740: Type 'Query<DocumentData, DocumentData>' is missing the following properties from type 'CollectionReference<DocumentData, DocumentData>': id, parent, path, listDocuments, and 2 more.
+src/lib/firebase/auditLogs.ts(142,7): error TS2322: Type 'Query<DocumentData, DocumentData>' is not assignable to type 'CollectionReference<DocumentData, DocumentData>'.
+src/lib/firebase/db.ts(284,64): error TS2339: Property 'id' does not exist on type 'unknown'.
+src/lib/firebase/db.ts(307,50): error TS2345: Argument of type '(subjectId: string) => Promise<unknown>' is not assignable to parameter of type '(value: TeacherSubject, index: number, array: TeacherSubject[]) => Promise<unknown>'.
+  Types of parameters 'subjectId' and 'value' are incompatible.
+    Type 'TeacherSubject' is not assignable to type 'string'.
+src/lib/firebase/db.ts(917,35): error TS2304: Cannot find name 'MeritPoint'.
+src/lib/firebase/db.ts(1152,42): error TS2345: Argument of type 'Omit<Notification, "id" | "createdAt">' is not assignable to parameter of type 'Omit<Notification, "id">'.
+  Property 'createdAt' is missing in type 'Omit<Notification, "id" | "createdAt">' but required in type 'Omit<Notification, "id">'.
+src/lib/firebase/parentAccess.ts(173,29): error TS2339: Property 'profilePhoto' does not exist on type 'Student'.
+src/lib/firebase/parentAccess.ts(382,47): error TS2339: Property 'amount' does not exist on type 'FeePayment'.
+src/lib/firebase/parentAccess.ts(384,50): error TS2339: Property 'method' does not exist on type 'FeePayment'.
+src/lib/firebase/parentAccess.ts(386,55): error TS2551: Property 'recordedBy' does not exist on type 'FeePayment'. Did you mean 'recordedAt'?
+src/lib/firebase/parentManagement.ts(152,23): error TS2352: Conversion of type '{ [k: string]: unknown; }' to type 'Parent' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ [k: string]: unknown; }' is missing the following properties from type 'Parent': id, userId, firstName, lastName, and 7 more.
+src/lib/firebase/studentManagement.ts(585,3): error TS1016: A required parameter cannot follow an optional parameter.

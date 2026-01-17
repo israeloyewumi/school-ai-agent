@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { NIGERIAN_SUBJECTS, SubjectInfo, ALL_CLASSES, ClassInfo } from '@/lib/config/schoolData';
+import { ALL_SUBJECTS, SubjectInfo, ALL_CLASSES, ClassInfo } from '@/lib/config/schoolData';
 
 interface SelectedSubject {
   subjectId: string;
@@ -20,11 +20,11 @@ export default function SubjectTeacherForm({
   onSubjectsChanged
 }: SubjectTeacherFormProps) {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
-  const [filteredSubjects, setFilteredSubjects] = useState<SubjectInfo[]>(NIGERIAN_SUBJECTS);
+  const [filteredSubjects, setFilteredSubjects] = useState<SubjectInfo[]>(ALL_SUBJECTS);
   const [activeSubject, setActiveSubject] = useState<string | null>(null);
 
   useEffect(() => {
-    let subjects = NIGERIAN_SUBJECTS;
+    let subjects = ALL_SUBJECTS;
 
     if (categoryFilter !== 'all') {
       subjects = subjects.filter(s => s.category === categoryFilter);
@@ -67,7 +67,7 @@ export default function SubjectTeacherForm({
     onSubjectsChanged(updatedSubjects);
   }
 
-  const categories = Array.from(new Set(NIGERIAN_SUBJECTS.map(s => s.category)));
+  const categories = Array.from(new Set(ALL_SUBJECTS.map(s => s.category)));
 
   return (
     <div className="space-y-6">
@@ -151,7 +151,7 @@ export default function SubjectTeacherForm({
           </h4>
 
           {selectedSubjects.map((subject) => {
-            const subjectInfo = NIGERIAN_SUBJECTS.find(s => s.subjectId === subject.subjectId);
+            const subjectInfo = ALL_SUBJECTS.find(s => s.subjectId === subject.subjectId);
             if (!subjectInfo) return null;
 
             // Filter classes applicable for this subject

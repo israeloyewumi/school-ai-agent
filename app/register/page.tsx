@@ -1,12 +1,13 @@
-// app/register/page.tsx - Enhanced Multi-Step Registration (Admin, Teacher & Parent)
+// app/register/page.tsx - UPDATED: Added parent approval system
 "use client";
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { RegisterData, UserRole } from '@/types/auth';
-import { TeacherType, AdminDepartment, getDepartmentDisplayName } from '@/types/database';
+import { TeacherType, AdminDepartment, getDepartmentDisplayName, AcademicTrack } from '@/types/database';
 import { registerUser } from '@/lib/auth/authService';
+import { validateTeacherRegistration } from '@/lib/firebase/validationHelpers';
 import TeacherRoleSelector from '@/components/teacher/TeacherRoleSelector';
 import ClassTeacherForm from '@/components/teacher/ClassTeacherForm';
 import SubjectTeacherForm from '@/components/teacher/SubjectTeacherForm';
@@ -22,11 +23,29 @@ type RegistrationStep =
   | 'review' 
   | 'success';
 
+// Define Child interface to match ParentChildrenForm
+interface Child {
+  firstName: string;
+  lastName: string;
+  gender: 'male' | 'female';
+  dateOfBirth: Date;
+  age: number;
+  classId: string;
+  className: string;
+  grade: number;
+  // Subject selection fields
+  subjects?: string[];
+  academicTrack?: AcademicTrack;
+  tradeSubject?: string;
+}
+
 export default function RegisterPage() {
   const router = useRouter();
   const [step, setStep] = useState<RegistrationStep>('basic');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
 
   // Basic registration data
   const [formData, setFormData] = useState<RegisterData>({
@@ -56,15 +75,7 @@ export default function RegisterPage() {
   const [parentOccupation, setParentOccupation] = useState('');
   const [parentWorkplace, setParentWorkplace] = useState('');
   const [parentAddress, setParentAddress] = useState('');
-  const [parentChildren, setParentChildren] = useState<{
-    firstName: string;
-    lastName: string;
-    gender: 'male' | 'female';
-    dateOfBirth: Date;
-    age: number;
-    classId: string;
-    className: string;
-  }[]>([]);
+  const [parentChildren, setParentChildren] = useState<Child[]>([]);
 
   function handleBasicInfoChange(field: keyof RegisterData, value: string) {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -126,36 +137,68 @@ export default function RegisterPage() {
 
   function handleClassSelected(classId: string, className: string) {
     setSelectedClass({ classId, className });
+    setValidationWarnings([]);
   }
 
   function handleSubjectsSelected(subjects: typeof selectedSubjects) {
     setSelectedSubjects(subjects);
+    setValidationWarnings([]);
   }
 
-  function handleTeacherDetailsComplete() {
-    // Validate teacher details
-    if (teacherType === 'class_teacher' || teacherType === 'both') {
-      if (!selectedClass) {
-        setError('Please select a class');
-        return;
-      }
-    }
+  async function handleTeacherDetailsComplete() {
+    setError('');
+    setValidationWarnings([]);
+    setLoading(true);
 
-    if (teacherType === 'subject_teacher' || teacherType === 'both') {
-      if (selectedSubjects.length === 0) {
-        setError('Please select at least one subject');
-        return;
+    try {
+      // Validate teacher details
+      if (teacherType === 'class_teacher' || teacherType === 'both') {
+        if (!selectedClass) {
+          setError('Please select a class');
+          setLoading(false);
+          return;
+        }
       }
-      
-      // Check if all subjects have classes assigned
-      const subjectWithoutClasses = selectedSubjects.find(s => s.classes.length === 0);
-      if (subjectWithoutClasses) {
-        setError(`Please assign classes for ${subjectWithoutClasses.subjectName}`);
-        return;
-      }
-    }
 
-    setStep('review');
+      if (teacherType === 'subject_teacher' || teacherType === 'both') {
+        if (selectedSubjects.length === 0) {
+          setError('Please select at least one subject');
+          setLoading(false);
+          return;
+        }
+        
+        // Check if all subjects have classes assigned
+        const subjectWithoutClasses = selectedSubjects.find(s => s.classes.length === 0);
+        if (subjectWithoutClasses) {
+          setError(`Please assign classes for ${subjectWithoutClasses.subjectName}`);
+          setLoading(false);
+          return;
+        }
+      }
+
+      // CRITICAL: Validate for duplicate assignments before proceeding
+      console.log('🔍 Validating teacher assignment availability...');
+      const validation = await validateTeacherRegistration({
+        teacherType: teacherType!,
+        requestedClass: selectedClass || undefined,
+        requestedSubjects: selectedSubjects.length > 0 ? selectedSubjects : undefined
+      });
+
+      if (!validation.isValid) {
+        setError('Cannot proceed with registration:');
+        setValidationWarnings(validation.errors);
+        setLoading(false);
+        return;
+      }
+
+      console.log('✅ Validation passed!');
+      setStep('review');
+    } catch (err: any) {
+      console.error('Validation error:', err);
+      setError('Failed to validate teacher assignment. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   function handleParentDetailsComplete() {
@@ -177,6 +220,16 @@ export default function RegisterPage() {
       return;
     }
 
+    // Validate that all children have subjects selected
+    const childrenWithoutSubjects = parentChildren.filter(
+      child => !child.subjects || child.subjects.length === 0
+    );
+
+    if (childrenWithoutSubjects.length > 0) {
+      setError('Please ensure all children have selected their subjects');
+      return;
+    }
+
     setStep('review');
   }
 
@@ -185,6 +238,7 @@ export default function RegisterPage() {
     setError('');
 
     try {
+      // Build registration data with complete child information including subjects
       const registrationData: RegisterData = {
         ...formData,
         adminDepartment: adminDepartment || undefined,
@@ -195,14 +249,44 @@ export default function RegisterPage() {
         occupation: parentOccupation || undefined,
         workplace: parentWorkplace || undefined,
         address: parentAddress || undefined,
-        children: parentChildren.length > 0 ? parentChildren : undefined
+        // Map children data to include subject selection
+        children: parentChildren.length > 0 ? parentChildren.map(child => ({
+          firstName: child.firstName,
+          lastName: child.lastName,
+          gender: child.gender,
+          dateOfBirth: child.dateOfBirth,
+          age: child.age,
+          classId: child.classId,
+          className: child.className,
+          grade: child.grade,
+          // Include subject selection data
+          subjects: child.subjects || [],
+          academicTrack: child.academicTrack || null,
+          tradeSubject: child.tradeSubject || null
+        })) : undefined
       };
 
+      console.log('📝 Submitting registration with children:', registrationData.children);
+
       await registerUser(registrationData);
+      
+      // CRITICAL FIX: Set success state and move to success step
+      setSuccess('Registration successful!');
       setStep('success');
+      setLoading(false);
+      
     } catch (err: any) {
       console.error('Registration error:', err);
-      setError(err.message || 'Registration failed. Please try again.');
+      // Parse multiple error messages if they exist
+      const errorMessage = err.message || 'Registration failed. Please try again.';
+      const errorLines = errorMessage.split('\n');
+      
+      if (errorLines.length > 1) {
+        setError('Registration failed:');
+        setValidationWarnings(errorLines);
+      } else {
+        setError(errorMessage);
+      }
       setLoading(false);
     }
   }
@@ -442,16 +526,39 @@ export default function RegisterPage() {
             )}
 
             {error && (
-              <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm">
-                {error}
+              <div className="bg-red-50 border border-red-300 rounded-lg p-4">
+                <div className="flex items-start gap-2">
+                  <span className="text-red-600 text-xl">⚠️</span>
+                  <div className="flex-1">
+                    <p className="font-semibold text-red-800 mb-1">{error}</p>
+                    {validationWarnings.length > 0 && (
+                      <ul className="text-sm text-red-700 space-y-1 mt-2">
+                        {validationWarnings.map((warning, index) => (
+                          <li key={index} className="flex items-start gap-2">
+                            <span>•</span>
+                            <span>{warning}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 
             <button
               onClick={handleTeacherDetailsComplete}
-              className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-lg transition-colors"
+              disabled={loading}
+              className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-lg transition-colors disabled:bg-gray-400 flex items-center justify-center gap-2"
             >
-              Continue to Review
+              {loading ? (
+                <>
+                  <span className="animate-spin">⏳</span>
+                  Validating...
+                </>
+              ) : (
+                'Continue to Review'
+              )}
             </button>
           </div>
         );
@@ -693,7 +800,7 @@ export default function RegisterPage() {
               </div>
             )}
 
-            {/* Parent Information */}
+            {/* Parent Information - ENHANCED with Subject Details */}
             {formData.role === 'parent' && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                 <h3 className="font-semibold mb-3 text-green-900">Parent & Children Information</h3>
@@ -722,14 +829,33 @@ export default function RegisterPage() {
                     <span className="text-green-600 font-semibold">Children ({parentChildren.length}):</span>
                     <ul className="mt-2 space-y-2">
                       {parentChildren.map((child, index) => (
-                        <li key={index} className="flex items-center gap-2 bg-white rounded p-2">
-                          <span>{child.gender === 'male' ? '👦' : '👧'}</span>
-                          <div>
-                            <p className="font-medium">{child.firstName} {child.lastName}</p>
-                            <p className="text-xs text-gray-600">
-                              {child.className} • Age {child.age} • {child.gender === 'male' ? 'Male' : 'Female'}
-                            </p>
+                        <li key={index} className="bg-white rounded p-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span>{child.gender === 'male' ? '👦' : '👧'}</span>
+                            <div className="flex-1">
+                              <p className="font-medium">{child.firstName} {child.lastName}</p>
+                              <p className="text-xs text-gray-600">
+                                {child.className} • Age {child.age} • {child.gender === 'male' ? 'Male' : 'Female'}
+                              </p>
+                            </div>
                           </div>
+                          {child.subjects && child.subjects.length > 0 && (
+                            <div className="mt-2 text-xs bg-blue-50 rounded p-2">
+                              <p className="font-medium text-blue-900">
+                                📚 {child.subjects.length} subjects selected
+                              </p>
+                              {child.academicTrack && (
+                                <p className="text-blue-700 mt-1">
+                                  Track: {child.academicTrack}
+                                </p>
+                              )}
+                              {child.tradeSubject && (
+                                <p className="text-blue-700">
+                                  Trade: {child.tradeSubject}
+                                </p>
+                              )}
+                            </div>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -751,25 +877,50 @@ export default function RegisterPage() {
               </div>
             )}
 
-            {/* Success Notice for Admins & Parents */}
-            {(formData.role === 'admin' || formData.role === 'parent') && (
+            {/* Updated Notice for Parents - Now requires approval */}
+            {formData.role === 'parent' && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex items-start gap-2">
+                  <span className="text-yellow-600 text-xl">⚠️</span>
+                  <div className="text-sm text-yellow-800">
+                    <p className="font-semibold mb-1">Admin Approval Required</p>
+                    <p>Your parent registration will be reviewed by the school admin. Your account and your children's accounts will be created once approved. You will receive an email notification when your registration is reviewed.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Success Notice for Admins Only */}
+            {formData.role === 'admin' && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                 <div className="flex items-start gap-2">
                   <span className="text-green-600 text-xl">✅</span>
                   <div className="text-sm text-green-800">
                     <p className="font-semibold mb-1">Immediate Access</p>
-                    <p>
-                      {formData.role === 'admin' && 'Your admin account will be activated immediately. You can login right after registration.'}
-                      {formData.role === 'parent' && `Your parent account and ${parentChildren.length} student account(s) will be created immediately. You can login right after registration.`}
-                    </p>
+                    <p>Your admin account will be activated immediately. You can login right after registration.</p>
                   </div>
                 </div>
               </div>
             )}
 
             {error && (
-              <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm">
-                {error}
+              <div className="bg-red-50 border border-red-300 rounded-lg p-4">
+                <div className="flex items-start gap-2">
+                  <span className="text-red-600 text-xl">❌</span>
+                  <div className="flex-1">
+                    <p className="font-semibold text-red-800 mb-1">{error}</p>
+                    {validationWarnings.length > 0 && (
+                      <ul className="text-sm text-red-700 space-y-1 mt-2">
+                        {validationWarnings.map((warning, index) => (
+                          <li key={index} className="flex items-start gap-2">
+                            <span>•</span>
+                            <span>{warning}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -784,7 +935,7 @@ export default function RegisterPage() {
                   Submitting...
                 </>
               ) : (
-                formData.role === 'teacher' ? 'Submit for Approval' : 'Create Account'
+                formData.role === 'teacher' || formData.role === 'parent' ? 'Submit for Approval' : 'Create Account'
               )}
             </button>
           </div>
@@ -795,7 +946,7 @@ export default function RegisterPage() {
           <div className="text-center py-8">
             <div className="text-6xl mb-4">✅</div>
             <h2 className="text-2xl font-bold text-green-600 mb-3">
-              Registration {formData.role === 'teacher' ? 'Submitted' : 'Complete'}!
+              Registration {formData.role === 'teacher' || formData.role === 'parent' ? 'Submitted' : 'Complete'}!
             </h2>
             
             {formData.role === 'teacher' ? (
@@ -832,28 +983,20 @@ export default function RegisterPage() {
             ) : formData.role === 'parent' ? (
               <div className="space-y-4">
                 <p className="text-gray-600">
-                  Your parent account and {parentChildren.length} student account(s) have been created successfully!
+                  Your parent registration has been submitted for admin approval.
                 </p>
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-left">
-                  <p className="font-semibold text-green-900 mb-2">Your children have been enrolled:</p>
-                  <ul className="text-sm text-green-700 space-y-1">
-                    {parentChildren.map((child, index) => (
-                      <li key={index} className="flex items-center gap-2">
-                        <span>{child.gender === 'male' ? '👦' : '👧'}</span>
-                        <span>{child.firstName} {child.lastName} - {child.className}</span>
-                      </li>
-                    ))}
-                  </ul>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-left">
+                  <p className="font-semibold text-yellow-900 mb-2">⚠️ Approval Required</p>
+                  <ol className="text-sm text-yellow-700 space-y-1 list-decimal list-inside">
+                    <li>Admin will review your registration</li>
+                    <li>Your children's accounts will be created upon approval</li>
+                    <li>You'll receive an email notification</li>
+                    <li>Once approved, you can login to your account</li>
+                  </ol>
                 </div>
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-left mt-4">
-                  <p className="font-semibold text-blue-900 mb-2">What you can do:</p>
-                  <ul className="text-sm text-blue-700 space-y-1 list-disc list-inside">
-                    <li>View your children's attendance and grades</li>
-                    <li>Check fee payment status</li>
-                    <li>Receive school notifications</li>
-                    <li>Communicate with teachers</li>
-                  </ul>
-                </div>
+                <p className="text-sm text-gray-500">
+                  This usually takes 1-2 business days.
+                </p>
               </div>
             ) : (
               <p className="text-gray-600 mb-4">

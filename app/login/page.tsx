@@ -1,4 +1,4 @@
-// app/login/page.tsx - Login Page (Admin Direct Routing)
+// app/login/page.tsx - FIXED: Proper loading state management
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -20,6 +20,9 @@ export default function LoginPage() {
     if (searchParams.get('registered') === 'true') {
       setSuccessMessage('✅ Registration successful! Please login with your credentials.');
     }
+    
+    // ✅ CRITICAL FIX: Reset loading state when component mounts
+    setIsLoading(false);
   }, [searchParams]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -34,23 +37,37 @@ export default function LoginPage() {
       
       console.log('Login successful:', user);
       
-      // ✅ ROUTE BASED ON ROLE
-      if (user.role === 'admin') {
-        // Admins go directly to admin dashboard
-        router.push('/admin');
-      } else {
-        // Others go to main chat interface
-        router.push('/');
-      }
+      // ✅ FIX: Don't set loading to false before navigation
+      // The component will unmount during navigation anyway
+      
+// Route based on role - redirect to ATLAS AI for admin and parent
+if (user.role === 'admin') {
+  router.push('/admin/atlas');  // ← CHANGED
+} else if (user.role === 'parent') {
+  router.push('/parent/atlas');  // ← ADDED (parents also go to ATLAS AI)
+} else {
+  router.push('/');
+}
+      
     } catch (error: any) {
       console.error('Login error:', error);
       setError(error.message || 'Failed to login. Please check your credentials.');
-      setIsLoading(false);
+      setIsLoading(false); // ✅ Only set to false on error (stays on page)
     }
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      {/* ✅ OPTIONAL: Add conditional rendering to prevent interaction during loading */}
+      {isLoading && (
+        <div className="fixed inset-0 bg-blue-500/20 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 shadow-xl">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+            <p className="text-gray-700 font-medium">Logging in...</p>
+          </div>
+        </div>
+      )}
+      
       <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
         <div className="text-center mb-8">
           <div className="text-5xl mb-3">🎓</div>
@@ -142,6 +159,7 @@ export default function LoginPage() {
                 setPassword('demo123');
               }}
               className="px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-medium transition-colors"
+              disabled={isLoading}
             >
               👨‍🎓 Student
             </button>
@@ -151,6 +169,7 @@ export default function LoginPage() {
                 setPassword('demo123');
               }}
               className="px-3 py-2 bg-green-50 hover:bg-green-100 text-green-700 rounded-lg text-xs font-medium transition-colors"
+              disabled={isLoading}
             >
               👨‍🏫 Teacher
             </button>
@@ -160,6 +179,7 @@ export default function LoginPage() {
                 setPassword('demo123');
               }}
               className="px-3 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-xs font-medium transition-colors"
+              disabled={isLoading}
             >
               👨‍👩‍👧‍👦 Parent
             </button>
@@ -169,8 +189,9 @@ export default function LoginPage() {
                 setPassword('demo123');
               }}
               className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-xs font-medium transition-colors"
+              disabled={isLoading}
             >
-              🔒 Admin
+              🔑 Admin
             </button>
           </div>
           <p className="text-xs text-gray-500 text-center mt-2">

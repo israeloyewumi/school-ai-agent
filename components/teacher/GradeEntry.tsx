@@ -1,4 +1,4 @@
-// components/teacher/GradeEntry.tsx - FIXED Voice-Based Grade Entry
+// components/teacher/GradeEntry.tsx - Enhanced with Student Subject Enrollment Validation
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -8,6 +8,7 @@ import { createDetailedAuditLog } from '@/lib/firebase/auditLogs';
 import { recordResult } from '@/lib/firebase/db';
 import { Timestamp } from 'firebase/firestore';
 import { smartParseNumber } from '@/lib/utils/numberParser';
+import type { Student } from '@/types/database';
 
 interface GradeEntryProps {
   teacherId: string;
@@ -16,8 +17,8 @@ interface GradeEntryProps {
   className: string;
   subjectId: string;
   subjectName: string;
-  assessmentType: 'ca1' | 'ca2' | 'exam';
-  studentList: { id: string; name: string }[];
+  assessmentType: 'classwork' | 'homework' | 'ca1' | 'ca2' | 'exam';
+  studentList: Student[]; // UPDATED: Now expects full Student objects with subject data
   term: string;
   session: string;
   maxScore: number;
@@ -31,6 +32,7 @@ interface StudentGrade {
   studentId: string;
   studentName: string;
   score: number;
+  academicTrack?: string | null;
 }
 
 export default function GradeEntry({
@@ -56,19 +58,79 @@ export default function GradeEntry({
   
   const [grades, setGrades] = useState<StudentGrade[]>([]);
   const [currentStudentIndex, setCurrentStudentIndex] = useState(0);
+  
+  // NEW: Filter students by subject enrollment
+  const [eligibleStudents, setEligibleStudents] = useState<Student[]>([]);
+  const [ineligibleStudents, setIneligibleStudents] = useState<Student[]>([]);
+
+  // NEW: Filter students on mount and when studentList changes
+  useEffect(() => {
+    filterStudentsBySubject();
+  }, [studentList, subjectId]);
+
+  // NEW: Filter students based on subject enrollment
+  function filterStudentsBySubject() {
+    const eligible: Student[] = [];
+    const ineligible: Student[] = [];
+
+    studentList.forEach(student => {
+      const studentSubjects = student.subjects || [];
+      
+      if (studentSubjects.includes(subjectId)) {
+        eligible.push(student);
+      } else {
+        ineligible.push(student);
+      }
+    });
+
+    setEligibleStudents(eligible);
+    setIneligibleStudents(ineligible);
+
+    console.log(`📊 Grade Entry Filter: ${eligible.length} eligible, ${ineligible.length} ineligible for ${subjectName}`);
+
+    // Show warning if some students are not enrolled
+    if (ineligible.length > 0) {
+      console.warn(`⚠️ ${ineligible.length} students not enrolled in ${subjectName}:`, 
+        ineligible.map(s => `${s.firstName} ${s.lastName}`).join(', ')
+      );
+    }
+  }
+
+  // Get assessment display name
+function getAssessmentDisplayName(type: string): string {
+  const names: Record<string, string> = {
+    classwork: 'Classwork',
+    homework: 'Homework',
+    ca1: 'CA 1',
+    ca2: 'CA 2',
+    exam: 'Exam'
+  };
+  return names[type] || type.toUpperCase();
+}
 
   useEffect(() => {
-    voiceService.speak(
-      `Recording ${assessmentType} scores for ${className}, ${subjectName}. ` +
-      `${studentList.length} students. Maximum score is ${maxScore}. ` +
-      `Say "start" to begin, or "cancel" to abort.`
-    );
+    // Only proceed if there are eligible students
+    if (eligibleStudents.length === 0) {
+      voiceService.speak(
+        `Warning: No students in ${className} are enrolled in ${subjectName}. ` +
+        `Please check student subject assignments. Say "cancel" to exit.`
+      );
+      setError(`No students enrolled in ${subjectName}`);
+    } else {
+      voiceService.speak(
+        `Recording ${getAssessmentDisplayName(assessmentType)} scores for ${className}, ${subjectName}. ` +
+        `${eligibleStudents.length} enrolled students. Maximum score is ${maxScore}. ` +
+        (ineligibleStudents.length > 0 ? 
+          `Note: ${ineligibleStudents.length} students not enrolled in this subject will be skipped. ` : '') +
+        `Say "start" to begin, or "cancel" to abort.`
+      );
+    }
     
     return () => {
       voiceService.stopListening();
       voiceService.stopSpeaking();
     };
-  }, []);
+  }, [eligibleStudents, ineligibleStudents]);
 
   function startListening() {
     setError('');
@@ -95,8 +157,11 @@ export default function GradeEntry({
     switch (step) {
       case 'intro':
         if (lowerText.includes('start') || lowerText.includes('begin')) {
+          if (eligibleStudents.length === 0) {
+            voiceService.speak('Cannot start. No students enrolled in this subject.');
+            return;
+          }
           setStep('recording');
-          // Use setTimeout to ensure state updates before speaking
           setTimeout(() => speakNextStudent(), 100);
         } else if (lowerText.includes('cancel')) {
           onCancel();
@@ -111,7 +176,7 @@ export default function GradeEntry({
         if (lowerText.includes('confirm') || lowerText.includes('correct')) {
           setStep('confirm');
           voiceService.speak(
-            `All ${studentList.length} scores recorded. ` +
+            `All ${eligibleStudents.length} scores recorded. ` +
             `Average: ${calculateAverage().toFixed(1)}. ` +
             `${grades.filter(g => g.score < maxScore * 0.5).length} students scored below 50%. ` +
             `Say "confirm" to save, or "modify" to make changes.`
@@ -140,93 +205,142 @@ export default function GradeEntry({
   }
 
   function speakNextStudent() {
-    if (currentStudentIndex < studentList.length) {
-      const student = studentList[currentStudentIndex];
-      // FIX: Use currentStudentIndex + 1 for the student number
-      voiceService.speak(`Student ${currentStudentIndex + 1}: ${student.name}. What's the score?`);
+    if (currentStudentIndex < eligibleStudents.length) {
+      const student = eligibleStudents[currentStudentIndex];
+      const studentName = `${student.firstName} ${student.lastName}`;
+      voiceService.speak(`Student ${currentStudentIndex + 1}: ${studentName}. What's the score?`);
     } else {
-      // All scores recorded, read back
       readBackAllScores();
     }
   }
 
   function handleScoreInput(text: string) {
-    // Try to extract score from text using smart parser
     const score = smartParseNumber(text);
     
+    console.log('🎯 Processing score input:', text);
+    console.log('📊 Parsed score:', score);
+    console.log('👤 Current student index:', currentStudentIndex);
+    console.log('📝 Current grades array:', grades);
+    
     if (score !== null && score >= 0 && score <= maxScore) {
-      const student = studentList[currentStudentIndex];
-      const newGrades = [...grades, {
-        studentId: student.id,
-        studentName: student.name,
-        score: score
-      }];
+      const student = eligibleStudents[currentStudentIndex];
+      const studentName = `${student.firstName} ${student.lastName}`;
       
-      setGrades(newGrades);
+      console.log('✅ Valid score! Adding for student:', studentName);
+      
+      // Create new grade entry with academic track info
+      const newGrade: StudentGrade = {
+        studentId: student.id,
+        studentName: studentName,
+        score: score,
+        academicTrack: student.academicTrack || null
+      };
+      
+      // Update grades array
+      setGrades(prevGrades => {
+        const updated = [...prevGrades, newGrade];
+        console.log('📝 Updated grades array:', updated);
+        return updated;
+      });
       
       // Move to next student
       const nextIndex = currentStudentIndex + 1;
+      console.log('➡️ Moving to next student. Next index:', nextIndex);
       setCurrentStudentIndex(nextIndex);
       
-      // FIX: Use setTimeout with the updated index to ensure state updates
-      if (nextIndex < studentList.length) {
+      // Speak next student after state updates
+      if (nextIndex < eligibleStudents.length) {
         setTimeout(() => {
-          const nextStudent = studentList[nextIndex];
-          voiceService.speak(`Student ${nextIndex + 1}: ${nextStudent.name}. What's the score?`);
+          const nextStudent = eligibleStudents[nextIndex];
+          const nextStudentName = `${nextStudent.firstName} ${nextStudent.lastName}`;
+          console.log('🗣️ Speaking next student:', nextStudentName);
+          voiceService.speak(`Student ${nextIndex + 1}: ${nextStudentName}. What's the score?`);
         }, 500);
       } else {
         // All done, read back
-        setTimeout(() => readBackAllScores(), 1000);
+        console.log('🎉 All students recorded! Reading back...');
+        setTimeout(() => {
+          setGrades(currentGrades => {
+            console.log('📋 Final grades before readback:', currentGrades);
+            setTimeout(() => readBackAllScores(currentGrades), 100);
+            return currentGrades;
+          });
+        }, 1000);
       }
     } else if (text.toLowerCase().includes('absent')) {
-      const student = studentList[currentStudentIndex];
-      const newGrades = [...grades, {
-        studentId: student.id,
-        studentName: student.name,
-        score: 0
-      }];
+      const student = eligibleStudents[currentStudentIndex];
+      const studentName = `${student.firstName} ${student.lastName}`;
       
-      setGrades(newGrades);
+      console.log('📝 Marking student as absent:', studentName);
+      
+      const newGrade: StudentGrade = {
+        studentId: student.id,
+        studentName: studentName,
+        score: 0,
+        academicTrack: student.academicTrack || null
+      };
+      
+      setGrades(prevGrades => {
+        const updated = [...prevGrades, newGrade];
+        console.log('📝 Updated grades array (absent):', updated);
+        return updated;
+      });
+      
       voiceService.speak('Marked as absent, score zero.');
       
       const nextIndex = currentStudentIndex + 1;
+      console.log('➡️ Moving to next student. Next index:', nextIndex);
       setCurrentStudentIndex(nextIndex);
       
-      // FIX: Same fix for absent case
-      if (nextIndex < studentList.length) {
+      if (nextIndex < eligibleStudents.length) {
         setTimeout(() => {
-          const nextStudent = studentList[nextIndex];
-          voiceService.speak(`Student ${nextIndex + 1}: ${nextStudent.name}. What's the score?`);
+          const nextStudent = eligibleStudents[nextIndex];
+          const nextStudentName = `${nextStudent.firstName} ${nextStudent.lastName}`;
+          console.log('🗣️ Speaking next student:', nextStudentName);
+          voiceService.speak(`Student ${nextIndex + 1}: ${nextStudentName}. What's the score?`);
         }, 1000);
       } else {
-        setTimeout(() => readBackAllScores(), 1000);
+        console.log('🎉 All students recorded! Reading back...');
+        setTimeout(() => {
+          setGrades(currentGrades => {
+            console.log('📋 Final grades before readback:', currentGrades);
+            setTimeout(() => readBackAllScores(currentGrades), 100);
+            return currentGrades;
+          });
+        }, 1000);
       }
     } else {
       voiceService.speak(`Invalid score. Please say a number between 0 and ${maxScore}, like "fifteen" or "23".`);
     }
   }
 
-  function readBackAllScores() {
+  function readBackAllScores(gradesToReadBack?: StudentGrade[]) {
+    const gradesData = gradesToReadBack || grades;
+    
     setStep('readback');
     
-    let readbackText = `Let me read back all ${grades.length} scores. `;
+    console.log('📢 Reading back scores for:', gradesData.length, 'students');
+    console.log('📊 Grades data:', gradesData);
     
-    grades.forEach((grade, index) => {
-      readbackText += `${grade.studentName}, ${grade.score}. `;
+    let readbackText = `Let me read back all ${gradesData.length} scores. `;
+    
+    gradesData.forEach((grade, index) => {
+      const scoreText = `${grade.studentName}, ${grade.score} out of ${maxScore}. `;
+      console.log(`${index + 1}. ${scoreText}`);
+      readbackText += scoreText;
       
-      // Add pause every 5 students
-      if ((index + 1) % 5 === 0 && index !== grades.length - 1) {
+      if ((index + 1) % 5 === 0 && index !== gradesData.length - 1) {
         readbackText += '... ';
       }
     });
     
-    readbackText += `That's all ${grades.length} scores. Say "confirm" if correct, or "change" followed by the student name to modify.`;
+    readbackText += `That's all ${gradesData.length} scores. Say "confirm" if correct, or "change" followed by the student name to modify.`;
     
+    console.log('📢 Final readback text:', readbackText);
     voiceService.speak(readbackText);
   }
 
   function handleModification(text: string) {
-    // Try to find student name in text
     const words = text.toLowerCase().split(' ');
     
     for (const grade of grades) {
@@ -235,7 +349,6 @@ export default function GradeEntry({
       
       if (nameFound) {
         voiceService.speak(`Changing ${grade.studentName}'s score. Current score is ${grade.score}. What's the new score?`);
-        // In a full implementation, handle the modification
         return;
       }
     }
@@ -274,11 +387,9 @@ export default function GradeEntry({
 
   async function saveGrades() {
     try {
-      // Calculate deadline (7 days from now for example)
       const deadline = new Date();
       deadline.setDate(deadline.getDate() + 7);
       
-      // Save all grades
       for (const grade of grades) {
         await recordResult({
           studentId: grade.studentId,
@@ -290,17 +401,17 @@ export default function GradeEntry({
           score: grade.score,
           maxScore,
           teacherId,
+          teacherName,  // ✅ ADD THIS LINE
           dateRecorded: Timestamp.now()
         });
       }
       
-      // Create audit log
       await createDetailedAuditLog({
         userId: teacherId,
         userRole: 'teacher',
         userName: teacherName,
         action: 'GRADE_ENTERED',
-        details: `Entered ${assessmentType} scores for ${className}, ${subjectName}: ${grades.length} students, average ${calculateAverage().toFixed(1)}`,
+        details: `Entered ${getAssessmentDisplayName(assessmentType)} scores for ${className}, ${subjectName}: ${grades.length} enrolled students, average ${calculateAverage().toFixed(1)}`,
         affectedEntity: classId,
         affectedEntityType: 'class',
         afterData: grades,
@@ -308,7 +419,7 @@ export default function GradeEntry({
       });
       
       voiceService.speak(
-        `${assessmentType} scores submitted and forwarded to admin department for CA calculation. ` +
+        `${getAssessmentDisplayName(assessmentType)} scores submitted and forwarded to admin department for processing. ` +
         `Edit window closes on ${deadline.toLocaleDateString()}.`
       );
       
@@ -338,19 +449,39 @@ export default function GradeEntry({
     }
   }
 
+function getAssessmentIcon(type: string): string {
+  const icons: Record<string, string> = {
+    classwork: '📝',
+    homework: '📚',
+    ca1: '📊',
+    ca2: '📄',
+    exam: '📖'
+  };
+  return icons[type] || '📋';
+}
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="text-center mb-6">
-          <div className="text-5xl mb-3">📝</div>
+          <div className="text-5xl mb-3">{getAssessmentIcon(assessmentType)}</div>
           <h2 className="text-3xl font-bold text-gray-800">Grade Entry</h2>
           <p className="text-gray-600 mt-2">
-            {className} • {subjectName} • {assessmentType.toUpperCase()}
+            {className} • {subjectName} • {getAssessmentDisplayName(assessmentType)}
           </p>
           <p className="text-sm text-gray-500">
-            Max Score: {maxScore} • {studentList.length} Students
+            Max Score: {maxScore} • {eligibleStudents.length} Enrolled Students
           </p>
+          
+          {/* NEW: Enrollment Status Badge */}
+          {ineligibleStudents.length > 0 && (
+            <div className="mt-2 inline-block">
+              <span className="text-xs bg-orange-100 text-orange-700 px-3 py-1 rounded-full">
+                ⚠️ {ineligibleStudents.length} students not enrolled in this subject
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Progress */}
@@ -358,12 +489,12 @@ export default function GradeEntry({
           <div className="mb-6">
             <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
               <span>Progress</span>
-              <span>{currentStudentIndex} / {studentList.length}</span>
+              <span>{currentStudentIndex} / {eligibleStudents.length}</span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2">
               <div
                 className="bg-blue-500 h-2 rounded-full transition-all"
-                style={{ width: `${(currentStudentIndex / studentList.length) * 100}%` }}
+                style={{ width: `${(currentStudentIndex / eligibleStudents.length) * 100}%` }}
               />
             </div>
           </div>
@@ -373,22 +504,62 @@ export default function GradeEntry({
         <div className="space-y-4">
           {step === 'intro' && (
             <div className="text-center py-8">
-              <p className="text-lg mb-4">
-                Ready to record <strong>{assessmentType.toUpperCase()}</strong> scores
-              </p>
-              <p className="text-gray-600">
-                Say each score one by one. I'll read them all back before saving.
-              </p>
+              {eligibleStudents.length > 0 ? (
+                <>
+                  <p className="text-lg mb-4">
+                    Ready to record <strong>{getAssessmentDisplayName(assessmentType)}</strong> scores
+                  </p>
+                  <p className="text-gray-600">
+                    Say each score one by one. I'll read them all back before saving.
+                  </p>
+                  {ineligibleStudents.length > 0 && (
+                    <div className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                      <p className="text-sm text-orange-800">
+                        ℹ️ <strong>{ineligibleStudents.length} students will be skipped</strong> - they are not enrolled in {subjectName}
+                      </p>
+                    </div>
+                  )}
+                  <div className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                    <p className="text-sm text-orange-800">
+                      ⚠️ <strong>Cannot be edited after submission</strong> - speak clearly!
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <div className="py-8">
+                  <div className="text-6xl mb-4">❌</div>
+                  <p className="text-xl font-bold text-red-600 mb-2">
+                    No Students Enrolled
+                  </p>
+                  <p className="text-gray-600">
+                    None of the students in {className} are enrolled in {subjectName}.
+                  </p>
+                  <p className="text-sm text-gray-500 mt-2">
+                    Please check student subject assignments or select a different subject.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
-          {step === 'recording' && currentStudentIndex < studentList.length && (
+          {step === 'recording' && currentStudentIndex < eligibleStudents.length && (
             <div className="text-center">
               <div className="text-6xl mb-4">🎤</div>
               <p className="text-2xl font-bold text-blue-600 mb-2">
-                {studentList[currentStudentIndex].name}
+                {eligibleStudents[currentStudentIndex].firstName} {eligibleStudents[currentStudentIndex].lastName}
               </p>
-              <p className="text-gray-600">Student {currentStudentIndex + 1} of {studentList.length}</p>
+              <p className="text-gray-600">
+                Student {currentStudentIndex + 1} of {eligibleStudents.length}
+              </p>
+              
+              {/* NEW: Show Academic Track */}
+              {eligibleStudents[currentStudentIndex].academicTrack && (
+                <div className="mt-2">
+                  <span className="text-xs bg-purple-100 text-purple-700 px-3 py-1 rounded-full">
+                    {eligibleStudents[currentStudentIndex].academicTrack} Track
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
@@ -407,7 +578,17 @@ export default function GradeEntry({
                   <tbody>
                     {grades.map((grade, i) => (
                       <tr key={i} className="border-b last:border-0">
-                        <td className="py-2">{grade.studentName}</td>
+                        <td className="py-2">
+                          <div className="flex flex-col">
+                            <span>{grade.studentName}</span>
+                            {/* NEW: Show Academic Track in readback */}
+                            {grade.academicTrack && (
+                              <span className="text-xs text-purple-600 mt-0.5">
+                                {grade.academicTrack} Track
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="text-right font-semibold">{grade.score}/{maxScore}</td>
                         <td className="text-right">
                           <span className={`px-2 py-1 rounded text-xs ${
@@ -457,7 +638,12 @@ export default function GradeEntry({
             <div className="text-center py-8">
               <div className="text-6xl mb-4">✅</div>
               <p className="text-2xl font-bold text-green-600 mb-2">Grades Saved!</p>
-              <p className="text-gray-600">Forwarded to admin for CA calculation</p>
+              <p className="text-gray-600">Forwarded to admin for processing</p>
+              <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-sm text-yellow-800">
+                  ⚠️ <strong>7-day edit window</strong> - contact admin after deadline
+                </p>
+              </div>
             </div>
           )}
 
@@ -486,7 +672,7 @@ export default function GradeEntry({
             </button>
             <button
               onClick={startListening}
-              disabled={isListening}
+              disabled={isListening || eligibleStudents.length === 0}
               className="flex-1 px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors disabled:bg-gray-400 flex items-center justify-center gap-2"
             >
               {isListening ? (
@@ -500,6 +686,28 @@ export default function GradeEntry({
                 </>
               )}
             </button>
+          </div>
+        )}
+
+        {/* NEW: Ineligible Students Info (shown at bottom) */}
+        {ineligibleStudents.length > 0 && step === 'intro' && (
+          <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <details className="cursor-pointer">
+              <summary className="font-medium text-gray-700 text-sm">
+                View {ineligibleStudents.length} students not enrolled in {subjectName}
+              </summary>
+              <div className="mt-3 space-y-2 max-h-48 overflow-y-auto">
+                {ineligibleStudents.map((student) => (
+                  <div key={student.id} className="text-xs text-gray-600 flex items-center gap-2">
+                    <span>{student.gender === 'male' ? '👦' : '👧'}</span>
+                    <span>{student.firstName} {student.lastName}</span>
+                    {student.academicTrack && (
+                      <span className="text-purple-600">• {student.academicTrack}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </details>
           </div>
         )}
       </div>

@@ -1,4 +1,4 @@
-// components/teacher/MeritAward.tsx - Voice-Based Merit/Demerit Award (No Security Questions)
+// components/teacher/MeritAward.tsx - FIXED: Student names and voice cutoff issues
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -6,13 +6,14 @@ import { getVoiceService } from '@/lib/voice/voiceService';
 import { createDetailedAuditLog } from '@/lib/firebase/auditLogs';
 import { awardMerit } from '@/lib/firebase/db';
 import { MeritCategory } from '@/types/database';
+import type { Student } from '@/types/database';
 
 interface MeritAwardProps {
   teacherId: string;
   teacherName: string;
   classId: string;
   className: string;
-  studentList: { id: string; name: string }[];
+  studentList: Student[]; // FIXED: Changed from {id: string, name: string}[] to Student[]
   term: string;
   session: string;
   onComplete: () => void;
@@ -63,7 +64,7 @@ export default function MeritAward({
   
   // Merit data
   const [isPositive, setIsPositive] = useState<boolean | null>(null);
-  const [selectedStudent, setSelectedStudent] = useState<{ id: string; name: string } | null>(null);
+  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null); // FIXED: Changed to Student type
   const [category, setCategory] = useState<MeritCategory | null>(null);
   const [points, setPoints] = useState<number>(0);
   const [reason, setReason] = useState('');
@@ -122,8 +123,10 @@ export default function MeritAward({
         if (student) {
           setSelectedStudent(student);
           setStep('enter-reason');
+          // FIXED: Proper student name formatting
+          const studentFullName = `${student.firstName} ${student.lastName}`;
           voiceService.speak(
-            `${student.name} selected. What's the reason? ` +
+            `${studentFullName} selected. What's the reason? ` +
             `Say the category like "homework", "punctuality", "noise making", etc.`
           );
         } else if (lowerText.includes('cancel')) {
@@ -141,15 +144,15 @@ export default function MeritAward({
           setReason(matchedCategory.label);
           
           setStep('confirm');
+          // FIXED: Proper student name formatting
+          const studentFullName = `${selectedStudent!.firstName} ${selectedStudent!.lastName}`;
           voiceService.speak(
-            `${isPositive ? 'Merit' : 'Demerit'} for ${selectedStudent!.name}: ` +
+            `${isPositive ? 'Merit' : 'Demerit'} for ${studentFullName}: ` +
             `${matchedCategory.label}, ${Math.abs(matchedCategory.points)} points. ` +
             `Say "confirm" to save.`
           );
         } else if (lowerText.includes('other')) {
-          // Custom reason
           voiceService.speak('Please type the custom reason and points manually.');
-          // In full implementation, allow custom input
         } else {
           voiceService.speak('Category not recognized. Try saying "homework", "punctuality", "noise making", etc.');
         }
@@ -157,9 +160,11 @@ export default function MeritAward({
         
       case 'confirm':
         if (lowerText.includes('confirm') || lowerText.includes('yes')) {
-          // No security verification needed - proceed directly to save
           voiceService.speak('Saving merit...');
-          saveMerit();
+          // FIXED: Wait for voice to finish before saving
+          setTimeout(() => {
+            saveMerit();
+          }, 1000);
         } else if (lowerText.includes('cancel')) {
           onCancel();
         }
@@ -167,18 +172,36 @@ export default function MeritAward({
     }
   }
 
-  function findStudentByName(spokenName: string): { id: string; name: string } | null {
+  // FIXED: Updated to work with Student objects
+  function findStudentByName(spokenName: string): Student | null {
     const normalized = spokenName.toLowerCase().trim();
     
+    // Try exact match first (full name)
     for (const student of studentList) {
-      if (student.name.toLowerCase() === normalized) {
+      const fullName = `${student.firstName} ${student.lastName}`.toLowerCase();
+      if (fullName === normalized) {
         return student;
       }
     }
     
+    // Try matching first name
     for (const student of studentList) {
-      const nameParts = student.name.toLowerCase().split(' ');
-      if (nameParts.some(part => part === normalized || normalized.includes(part))) {
+      if (student.firstName.toLowerCase() === normalized) {
+        return student;
+      }
+    }
+    
+    // Try matching last name
+    for (const student of studentList) {
+      if (student.lastName.toLowerCase() === normalized) {
+        return student;
+      }
+    }
+    
+    // Try partial match
+    for (const student of studentList) {
+      const fullName = `${student.firstName} ${student.lastName}`.toLowerCase();
+      if (fullName.includes(normalized) || normalized.includes(student.firstName.toLowerCase())) {
         return student;
       }
     }
@@ -227,30 +250,36 @@ export default function MeritAward({
         classId
       });
       
+      // FIXED: Proper student name formatting
+      const studentFullName = `${selectedStudent.firstName} ${selectedStudent.lastName}`;
+      
       // Create audit log
       await createDetailedAuditLog({
         userId: teacherId,
         userRole: 'teacher',
         userName: teacherName,
         action: points > 0 ? 'MERIT_AWARDED' : 'DEMERIT_GIVEN',
-        details: `${points > 0 ? 'Awarded' : 'Gave'} ${Math.abs(points)} ${points > 0 ? 'merit' : 'demerit'} points to ${selectedStudent.name} for ${reason}`,
+        details: `${points > 0 ? 'Awarded' : 'Gave'} ${Math.abs(points)} ${points > 0 ? 'merit' : 'demerit'} points to ${studentFullName} for ${reason}`,
         affectedEntity: selectedStudent.id,
         affectedEntityType: 'student',
         afterData: { points, category, reason },
         success: true
       });
       
-      voiceService.speak(
-        `${isPositive ? 'Merit' : 'Demerit'} awarded to ${selectedStudent.name}. ` +
+      // FIXED: Proper completion message with full text
+      const completionMessage = 
+        `${isPositive ? 'Merit' : 'Demerit'} awarded to ${studentFullName}. ` +
         `${Math.abs(points)} points for ${reason}. ` +
-        `Forwarded to admin department.`
-      );
+        `Forwarded to admin department.`;
+      
+      voiceService.speak(completionMessage);
       
       setStep('complete');
       
+      // FIXED: Wait longer before closing to allow voice to finish
       setTimeout(() => {
         onComplete();
-      }, 3000);
+      }, 5000); // Increased from 3000 to 5000ms
     } catch (err: any) {
       console.error('Error saving merit:', err);
       setError(err.message);
@@ -272,6 +301,11 @@ export default function MeritAward({
     }
   }
 
+  // FIXED: Get proper student display name
+  function getStudentDisplayName(student: Student): string {
+    return `${student.firstName} ${student.lastName}`;
+  }
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -283,7 +317,7 @@ export default function MeritAward({
           <h2 className="text-3xl font-bold text-gray-800">
             {isPositive === null ? 'Merit/Demerit Award' : isPositive ? 'Merit Award' : 'Demerit'}
           </h2>
-          <p className="text-gray-600 mt-2">{className}</p>
+          <p className="text-gray-600 mt-2">{className} • Voice Entry</p>
         </div>
 
         {/* Main Content */}
@@ -333,11 +367,18 @@ export default function MeritAward({
                     onClick={() => {
                       setSelectedStudent(student);
                       setStep('enter-reason');
-                      voiceService.speak(`${student.name} selected. What's the reason?`);
+                      const studentName = getStudentDisplayName(student);
+                      voiceService.speak(`${studentName} selected. What's the reason?`);
                     }}
                     className="p-3 text-left bg-gray-50 hover:bg-blue-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-all"
                   >
-                    <div className="font-medium text-sm">{student.name}</div>
+                    {/* FIXED: Proper student name display */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">{student.gender === 'male' ? '👦' : '👧'}</span>
+                      <div className="font-medium text-sm">
+                        {getStudentDisplayName(student)}
+                      </div>
+                    </div>
                   </button>
                 ))}
               </div>
@@ -347,7 +388,7 @@ export default function MeritAward({
           {step === 'enter-reason' && selectedStudent && (
             <div>
               <p className="text-lg mb-4 text-center">
-                Reason for {selectedStudent.name}
+                Reason for {getStudentDisplayName(selectedStudent)}
               </p>
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {(isPositive ? MERIT_CATEGORIES.positive : MERIT_CATEGORIES.negative).map((cat) => (
@@ -358,8 +399,9 @@ export default function MeritAward({
                       setPoints(cat.points);
                       setReason(cat.label);
                       setStep('confirm');
+                      const studentName = getStudentDisplayName(selectedStudent);
                       voiceService.speak(
-                        `${isPositive ? 'Merit' : 'Demerit'} for ${selectedStudent.name}: ` +
+                        `${isPositive ? 'Merit' : 'Demerit'} for ${studentName}: ` +
                         `${cat.label}, ${Math.abs(cat.points)} points. Say "confirm" to save.`
                       );
                     }}
@@ -386,7 +428,8 @@ export default function MeritAward({
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <p className="text-sm text-gray-600">Student</p>
-                    <p className="text-xl font-bold">{selectedStudent.name}</p>
+                    {/* FIXED: Proper student name display */}
+                    <p className="text-xl font-bold">{getStudentDisplayName(selectedStudent)}</p>
                   </div>
                   <div className={`text-4xl font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
                     {points > 0 ? '+' : ''}{points}
@@ -421,6 +464,12 @@ export default function MeritAward({
                 {isPositive ? 'Merit' : 'Demerit'} Awarded!
               </p>
               <p className="text-gray-600">Forwarded to admin department</p>
+              {/* FIXED: Show student name in completion */}
+              {selectedStudent && (
+                <p className="text-sm text-gray-500 mt-2">
+                  {getStudentDisplayName(selectedStudent)} • {Math.abs(points)} points
+                </p>
+              )}
             </div>
           )}
 

@@ -1,0 +1,435 @@
+// functions/src/lib/firebase/subjectManagement.ts - ADMIN SDK VERSION
+import * as admin from 'firebase-admin';
+
+// Initialize Firestore from Admin SDK
+const db = admin.firestore();
+
+import { Subject, SubjectTeacher } from '../../types/database';
+import { ALL_SUBJECTS } from '../config/schoolData';
+import { createDetailedAuditLog } from './auditLogs';
+
+/**
+ * ✅ FIXED: Initialize all subjects in Firestore
+ */
+export async function initializeAllSubjects(): Promise<void> {
+  try {
+    console.log('📄 Starting subject initialization...');
+    console.log(`📚 Total unique subjects to create: ${ALL_SUBJECTS.length}`);
+    
+    const batch = db.batch();
+    let count = 0;
+
+    for (const subjectInfo of ALL_SUBJECTS) {
+      const subjectDoc: Subject = {
+        id: subjectInfo.subjectId,
+        subjectId: subjectInfo.subjectId,
+        name: subjectInfo.subjectName,
+        subjectName: subjectInfo.subjectName,
+        code: subjectInfo.subjectId.toUpperCase().replace(/_/g, '-'),
+        category: subjectInfo.category,
+        isCore: subjectInfo.isCore,
+        teachers: [],
+        applicableLevels: subjectInfo.applicableLevels,
+        applicableGrades: subjectInfo.applicableGrades,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+
+      const subjectRef = db.collection('subjects').doc(subjectInfo.subjectId);
+      batch.set(subjectRef, subjectDoc, { merge: true });
+      count++;
+      
+      if (count % 10 === 0) {
+        console.log(`  ✓ ${count}/${ALL_SUBJECTS.length} subjects prepared...`);
+      }
+    }
+
+    await batch.commit();
+    console.log(`✅ All ${ALL_SUBJECTS.length} subjects initialized successfully!`);
+    
+    const verification = await verifyAllSubjectsExist();
+    if (verification.allExist) {
+      console.log('✅ Verification passed - all subjects exist in database');
+    } else {
+      console.error('⚠️ Verification failed - missing subjects:', verification.missingSubjects);
+      throw new Error(`Failed to create subjects: ${verification.missingSubjects.join(', ')}`);
+    }
+  } catch (error) {
+    console.error('❌ Error initializing subjects:', error);
+    throw error;
+  }
+}
+
+/**
+ * ✅ FIXED: Verify all subjects from config exist in database
+ */
+export async function verifyAllSubjectsExist(): Promise<{ 
+  allExist: boolean; 
+  missingSubjects: string[];
+  totalExpected: number;
+  totalFound: number;
+}> {
+  try {
+    const missingSubjects: string[] = [];
+    const expectedSubjectIds = ALL_SUBJECTS.map(s => s.subjectId);
+    
+    console.log('🔍 Verifying subjects in database...');
+    console.log(`📊 Expected unique subjects: ${expectedSubjectIds.length}`);
+    
+    for (const subjectId of expectedSubjectIds) {
+      const subjectDoc = await db.collection('subjects').doc(subjectId).get();
+      if (!subjectDoc.exists) {
+        missingSubjects.push(subjectId);
+      }
+    }
+    
+    console.log(`📚 Found ${expectedSubjectIds.length - missingSubjects.length} subjects in database`);
+    
+    if (missingSubjects.length > 0) {
+      console.log(`⚠️ Missing ${missingSubjects.length} subjects:`, missingSubjects);
+    }
+    
+    return {
+      allExist: missingSubjects.length === 0,
+      missingSubjects,
+      totalExpected: expectedSubjectIds.length,
+      totalFound: expectedSubjectIds.length - missingSubjects.length
+    };
+  } catch (error) {
+    console.error('❌ Error verifying subjects:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get subject by ID
+ */
+export async function getSubjectById(subjectId: string): Promise<Subject | null> {
+  try {
+    const subjectDoc = await db.collection('subjects').doc(subjectId).get();
+    
+    if (!subjectDoc.exists) {
+      return null;
+    }
+
+    return subjectDoc.data() as Subject;
+  } catch (error) {
+    console.error('❌ Error fetching subject:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get all subjects
+ */
+export async function getAllSubjects(): Promise<Subject[]> {
+  try {
+    const subjectsSnapshot = await db.collection('subjects').get();
+    return subjectsSnapshot.docs.map(doc => doc.data() as Subject);
+  } catch (error) {
+    console.error('❌ Error fetching subjects:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get subjects by category
+ */
+export async function getSubjectsByCategory(
+  category: 'Core' | 'Science' | 'Arts' | 'Commercial' | 'Vocational' | 'Religious'
+): Promise<Subject[]> {
+  try {
+    const snapshot = await db.collection('subjects')
+      .where('category', '==', category)
+      .get();
+    
+    return snapshot.docs.map(doc => doc.data() as Subject);
+  } catch (error) {
+    console.error('❌ Error fetching subjects by category:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get subjects for a specific grade
+ */
+export async function getSubjectsForGrade(grade: number): Promise<Subject[]> {
+  try {
+    const allSubjects = await getAllSubjects();
+    return allSubjects.filter(subject => 
+      subject.applicableGrades.includes(grade)
+    );
+  } catch (error) {
+    console.error('❌ Error fetching subjects for grade:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get core subjects for a grade
+ */
+export async function getCoreSubjectsForGrade(grade: number): Promise<Subject[]> {
+  try {
+    const allSubjects = await getAllSubjects();
+    return allSubjects.filter(subject => 
+      subject.isCore && subject.applicableGrades.includes(grade)
+    );
+  } catch (error) {
+    console.error('❌ Error fetching core subjects:', error);
+    throw error;
+  }
+}
+
+/**
+ * Add teacher to subject
+ */
+export async function addTeacherToSubject(
+  subjectId: string,
+  teacherId: string,
+  teacherName: string,
+  classes: string[],
+  performedBy: string,
+  performerName: string
+): Promise<void> {
+  try {
+    const subjectDoc = await getSubjectById(subjectId);
+    if (!subjectDoc) {
+      throw new Error('Subject not found');
+    }
+
+    const existingTeacher = subjectDoc.teachers.find(
+      t => t.teacherId === teacherId
+    );
+
+    if (existingTeacher) {
+      const updatedTeachers = subjectDoc.teachers.map(t =>
+        t.teacherId === teacherId
+          ? { ...t, classes: Array.from(new Set([...t.classes, ...classes])) }
+          : t
+      );
+
+      await db.collection('subjects').doc(subjectId).update({
+        teachers: updatedTeachers,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    } else {
+      const newTeacher: SubjectTeacher = {
+        teacherId,
+        teacherName,
+        classes,
+        assignedDate: new Date()
+      };
+
+      const updatedTeachers = [...subjectDoc.teachers, newTeacher];
+
+      await db.collection('subjects').doc(subjectId).update({
+        teachers: updatedTeachers,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    }
+
+    await createDetailedAuditLog({
+      userId: performedBy,
+      userRole: 'admin',
+      userName: performerName,
+      action: 'SUBJECT_TEACHER_ASSIGNED',
+      details: `Assigned ${teacherName} to teach ${subjectDoc.subjectName}`,
+      affectedEntity: subjectId,
+      affectedEntityType: 'subject',
+      afterData: { teacherId, teacherName, classes },
+      success: true
+    });
+
+    console.log('✅ Teacher added to subject:', subjectId, teacherId);
+  } catch (error) {
+    console.error('❌ Error adding teacher to subject:', error);
+    throw error;
+  }
+}
+
+/**
+ * Remove teacher from subject
+ */
+export async function removeTeacherFromSubject(
+  subjectId: string,
+  teacherId: string,
+  performedBy: string,
+  performerName: string
+): Promise<void> {
+  try {
+    const subjectDoc = await getSubjectById(subjectId);
+    if (!subjectDoc) {
+      throw new Error('Subject not found');
+    }
+
+    const removedTeacher = subjectDoc.teachers.find(t => t.teacherId === teacherId);
+    const updatedTeachers = subjectDoc.teachers.filter(t => t.teacherId !== teacherId);
+
+    await db.collection('subjects').doc(subjectId).update({
+      teachers: updatedTeachers,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    if (removedTeacher) {
+      await createDetailedAuditLog({
+        userId: performedBy,
+        userRole: 'admin',
+        userName: performerName,
+        action: 'SUBJECT_TEACHER_ASSIGNED',
+        details: `Removed ${removedTeacher.teacherName} from teaching ${subjectDoc.subjectName}`,
+        affectedEntity: subjectId,
+        affectedEntityType: 'subject',
+        beforeData: { teacher: removedTeacher },
+        success: true
+      });
+    }
+
+    console.log('✅ Teacher removed from subject:', subjectId, teacherId);
+  } catch (error) {
+    console.error('❌ Error removing teacher from subject:', error);
+    throw error;
+  }
+}
+
+/**
+ * Update teacher's classes for a subject
+ */
+export async function updateTeacherClassesForSubject(
+  subjectId: string,
+  teacherId: string,
+  newClasses: string[],
+  performedBy: string,
+  performerName: string
+): Promise<void> {
+  try {
+    const subjectDoc = await getSubjectById(subjectId);
+    if (!subjectDoc) {
+      throw new Error('Subject not found');
+    }
+
+    const updatedTeachers = subjectDoc.teachers.map(t =>
+      t.teacherId === teacherId
+        ? { ...t, classes: newClasses }
+        : t
+    );
+
+    await db.collection('subjects').doc(subjectId).update({
+      teachers: updatedTeachers,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    console.log('✅ Teacher classes updated for subject:', subjectId, teacherId);
+  } catch (error) {
+    console.error('❌ Error updating teacher classes:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get all subjects taught by a teacher
+ */
+export async function getSubjectsByTeacher(teacherId: string): Promise<Subject[]> {
+  try {
+    const allSubjects = await getAllSubjects();
+    
+    return allSubjects.filter(subject =>
+      subject.teachers.some(t => t.teacherId === teacherId)
+    );
+  } catch (error) {
+    console.error('❌ Error fetching subjects by teacher:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get teachers for a subject
+ */
+export async function getTeachersForSubject(subjectId: string): Promise<SubjectTeacher[]> {
+  try {
+    const subject = await getSubjectById(subjectId);
+    if (!subject) {
+      return [];
+    }
+
+    return subject.teachers;
+  } catch (error) {
+    console.error('❌ Error fetching teachers for subject:', error);
+    throw error;
+  }
+}
+
+/**
+ * Check if a teacher teaches a specific subject
+ */
+export async function teacherTeachesSubject(
+  teacherId: string,
+  subjectId: string
+): Promise<boolean> {
+  try {
+    const subject = await getSubjectById(subjectId);
+    if (!subject) {
+      return false;
+    }
+
+    return subject.teachers.some(t => t.teacherId === teacherId);
+  } catch (error) {
+    console.error('❌ Error checking if teacher teaches subject:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get subject statistics
+ */
+export async function getSubjectStats(subjectId: string) {
+  try {
+    const subject = await getSubjectById(subjectId);
+    if (!subject) {
+      throw new Error('Subject not found');
+    }
+
+    const totalTeachers = subject.teachers.length;
+    const totalClasses = new Set(
+      subject.teachers.flatMap(t => t.classes)
+    ).size;
+
+    return {
+      subjectName: subject.subjectName,
+      category: subject.category,
+      isCore: subject.isCore,
+      totalTeachers,
+      totalClasses,
+      teachers: subject.teachers.map(t => ({
+        name: t.teacherName,
+        classesCount: t.classes.length
+      })),
+      applicableGrades: subject.applicableGrades,
+      applicableLevels: subject.applicableLevels
+    };
+  } catch (error) {
+    console.error('❌ Error fetching subject stats:', error);
+    throw error;
+  }
+}
+
+/**
+ * Update subject information
+ */
+export async function updateSubject(
+  subjectId: string,
+  updates: Partial<Subject>
+): Promise<void> {
+  try {
+    const subjectRef = db.collection('subjects').doc(subjectId);
+    
+    await subjectRef.update({
+      ...updates,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    console.log('✅ Subject updated:', subjectId);
+  } catch (error) {
+    console.error('❌ Error updating subject:', error);
+    throw error;
+  }
+}
