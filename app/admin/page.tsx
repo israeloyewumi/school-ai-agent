@@ -17,8 +17,9 @@ import FeePaymentRecorder from '@/components/admin/FeePaymentRecorder';
 import FeeStructureSetup from '@/components/admin/FeeStructureSetup';
 import DailyTeacherRecordings from '@/components/admin/DailyTeacherRecordings';
 import AdminChatAssistant from '@/components/admin/AdminChatAssistant';
+import TeacherReallocation from '@/components/admin/TeacherReallocation';
 
-type ActiveTab = 'overview' | 'approvals' | 'parent-approvals' | 'teachers' | 'grades' | 'reports' | 'fees';
+type ActiveTab = 'overview' | 'approvals' | 'parent-approvals' | 'teachers' | 'reallocation' | 'grades' | 'reports' | 'fees';
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -281,87 +282,97 @@ async function handleLogout() {
         <div className="bg-white rounded-lg shadow">
           <div className="border-b border-gray-200">
             <nav className="flex -mb-px overflow-x-auto">
-              <button
-                onClick={() => setActiveTab('overview')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  activeTab === 'overview'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                📊 Overview
-              </button>
-              <button
-                onClick={() => setActiveTab('approvals')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  activeTab === 'approvals'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                ⏳ Teacher Approvals
-                {pendingTeacherApprovals.length > 0 && (
-                  <span className="ml-2 px-2 py-1 bg-red-500 text-white text-xs rounded-full">
-                    {pendingTeacherApprovals.length}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => setActiveTab('parent-approvals')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  activeTab === 'parent-approvals'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                👨‍👩‍👧 Parent Approvals
-                {pendingParentApprovals.length > 0 && (
-                  <span className="ml-2 px-2 py-1 bg-red-500 text-white text-xs rounded-full">
-                    {pendingParentApprovals.length}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => setActiveTab('teachers')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  activeTab === 'teachers'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                👥 Teachers
-              </button>
-              <button
-                onClick={() => setActiveTab('grades')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  activeTab === 'grades'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                📝 Add Grades
-              </button>
-              <button
-                onClick={() => setActiveTab('reports')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  activeTab === 'reports'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                📄 Reports
-              </button>
-              <button
-                onClick={() => setActiveTab('fees')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  activeTab === 'fees'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                💰 Fee Management
-              </button>
-            </nav>
+  <button
+    onClick={() => setActiveTab('overview')}
+    className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+      activeTab === 'overview'
+        ? 'border-blue-500 text-blue-600'
+        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+    }`}
+  >
+    📊 Overview
+  </button>
+  <button
+    onClick={() => setActiveTab('approvals')}
+    className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+      activeTab === 'approvals'
+        ? 'border-blue-500 text-blue-600'
+        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+    }`}
+  >
+    ⏳ Teacher Approvals
+    {pendingTeacherApprovals.length > 0 && (
+      <span className="ml-2 px-2 py-1 bg-red-500 text-white text-xs rounded-full">
+        {pendingTeacherApprovals.length}
+      </span>
+    )}
+  </button>
+  <button
+    onClick={() => setActiveTab('parent-approvals')}
+    className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+      activeTab === 'parent-approvals'
+        ? 'border-blue-500 text-blue-600'
+        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+    }`}
+  >
+    👨‍👩‍👧 Parent Approvals
+    {pendingParentApprovals.length > 0 && (
+      <span className="ml-2 px-2 py-1 bg-red-500 text-white text-xs rounded-full">
+        {pendingParentApprovals.length}
+      </span>
+    )}
+  </button>
+  <button
+    onClick={() => setActiveTab('teachers')}
+    className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+      activeTab === 'teachers'
+        ? 'border-blue-500 text-blue-600'
+        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+    }`}
+  >
+    👥 Teachers
+  </button>
+  <button
+    onClick={() => setActiveTab('reallocation')}
+    className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+      activeTab === 'reallocation'
+        ? 'border-blue-500 text-blue-600'
+        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+    }`}
+  >
+    🔄 Reassign Teachers
+  </button>
+  <button
+    onClick={() => setActiveTab('grades')}
+    className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+      activeTab === 'grades'
+        ? 'border-blue-500 text-blue-600'
+        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+    }`}
+  >
+    📝 Add Grades
+  </button>
+  <button
+    onClick={() => setActiveTab('reports')}
+    className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+      activeTab === 'reports'
+        ? 'border-blue-500 text-blue-600'
+        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+    }`}
+  >
+    📄 Reports
+  </button>
+  <button
+    onClick={() => setActiveTab('fees')}
+    className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+      activeTab === 'fees'
+        ? 'border-blue-500 text-blue-600'
+        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+    }`}
+  >
+    💰 Fee Management
+  </button>
+</nav>
           </div>
 
           <div className="p-6">
@@ -675,21 +686,29 @@ async function handleLogout() {
               />
             )}
 
- {/* Teachers Tab - Daily Recordings */}
-            {activeTab === 'teachers' && (
-              <DailyTeacherRecordings
-                adminId={currentUser?.id || ''}
-                adminName={`${currentUser?.firstName} ${currentUser?.lastName}`}
-              />
-            )}
+{/* Teachers Tab - Daily Recordings */}
+{activeTab === 'teachers' && (
+  <DailyTeacherRecordings
+    adminId={currentUser?.id || ''}
+    adminName={`${currentUser?.firstName} ${currentUser?.lastName}`}
+  />
+)}
 
-            {/* Grades Tab */}
-            {activeTab === 'grades' && (
-              <QuickGradeEntry
-                adminId={currentUser?.id || ''}
-                adminName={`${currentUser?.firstName} ${currentUser?.lastName}`}
-              />
-            )}
+{/* Teacher Reallocation Tab - NEW */}
+{activeTab === 'reallocation' && (
+  <TeacherReallocation
+    adminId={currentUser?.id || ''}
+    adminName={`${currentUser?.firstName} ${currentUser?.lastName}`}
+  />
+)}
+
+{/* Grades Tab */}
+{activeTab === 'grades' && (
+  <QuickGradeEntry
+    adminId={currentUser?.id || ''}
+    adminName={`${currentUser?.firstName} ${currentUser?.lastName}`}
+  />
+)}
 
             {/* Reports Tab */}
             {activeTab === 'reports' && (

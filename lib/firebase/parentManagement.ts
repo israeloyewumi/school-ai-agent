@@ -1,4 +1,5 @@
-// lib/firebase/parentManagement.ts - Parent CRUD Operations
+// lib/firebase/parentManagement.ts - Parent CRUD Operations (CLIENT SDK - COMPLETE)
+// ✅ FIXED: Creates parent during approval, not during registration
 
 import {
   collection,
@@ -10,14 +11,18 @@ import {
   deleteDoc,
   query,
   where,
-  Timestamp
+  writeBatch
 } from 'firebase/firestore';
 import { db } from './config';
-import { Parent } from '@/types/database';
+import { Parent, PendingParentApproval } from '@/types/database';
 import { createDetailedAuditLog } from './auditLogs';
 
+// ============================================
+// PARENT CRUD OPERATIONS
+// ============================================
+
 /**
- * Create a new parent record
+ * Create a new parent record (IMMEDIATE - NO APPROVAL)
  */
 export async function createParent(parentData: Partial<Parent>): Promise<Parent> {
   try {
@@ -358,6 +363,307 @@ export async function getParentStats() {
     };
   } catch (error) {
     console.error('❌ Error fetching parent stats:', error);
+    throw error;
+  }
+}
+
+// ============================================
+// PARENT APPROVAL SYSTEM
+// ============================================
+
+/**
+ * Submit parent registration for admin approval
+ */
+export async function submitParentForApproval(
+  parentData: {
+    userId: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    phoneNumber?: string;
+    relationship: 'father' | 'mother' | 'guardian' | 'other';
+    occupation?: string;
+    workplace?: string;
+    address?: string;
+    children: any[];
+  }
+): Promise<string> {
+  try {
+    // Clean undefined values - only include defined fields
+    const approvalData: any = {
+      userId: parentData.userId,
+      firstName: parentData.firstName,
+      lastName: parentData.lastName,
+      email: parentData.email,
+      relationship: parentData.relationship,
+      children: parentData.children,
+      status: 'pending',
+      submittedAt: new Date()
+    };
+
+    // Only add optional fields if they exist
+    if (parentData.phoneNumber) {
+      approvalData.phoneNumber = parentData.phoneNumber;
+    }
+    if (parentData.occupation) {
+      approvalData.occupation = parentData.occupation;
+    }
+    if (parentData.workplace) {
+      approvalData.workplace = parentData.workplace;
+    }
+    if (parentData.address) {
+      approvalData.address = parentData.address;
+    }
+
+    const approvalRef = doc(collection(db, 'pendingApprovals'));
+    await setDoc(approvalRef, approvalData);
+
+    console.log('✅ Parent submitted for approval:', approvalRef.id);
+    return approvalRef.id;
+  } catch (error) {
+    console.error('❌ Error submitting parent for approval:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get all pending parent approvals
+ */
+export async function getPendingParentApprovals(): Promise<PendingParentApproval[]> {
+  try {
+    const q = query(
+      collection(db, 'pendingApprovals'),
+      where('status', '==', 'pending'),
+      where('relationship', 'in', ['father', 'mother', 'guardian', 'other'])
+    );
+    
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as PendingParentApproval));
+  } catch (error) {
+    console.error('❌ Error fetching pending parent approvals:', error);
+    throw error;
+  }
+}
+
+/**
+ * Approve parent registration
+ * ✅ FIXED: Creates the parent record during approval (not during registration)
+ */
+export async function approveParent(
+  approvalId: string,
+  adminId: string,
+  adminName: string
+): Promise<void> {
+  try {
+    console.log('✅ Starting parent approval process...');
+    
+    // Get approval data
+    const approvalDoc = await getDoc(doc(db, 'pendingApprovals', approvalId));
+    if (!approvalDoc.exists()) {
+      throw new Error('Approval request not found');
+    }
+    
+    const approval = approvalDoc.data() as PendingParentApproval;
+    console.log('📋 Approval data:', approval);
+
+    // ✅ FIX: Generate parentId if not present
+    const parentId = approval.parentId || `parent_${Date.now()}`;
+    console.log('🆔 Parent ID:', parentId);
+
+    const batch = writeBatch(db);
+
+    // ✅ FIX: CREATE the parent record during approval
+    const parentData: any = {
+      id: parentId,
+      parentId,
+      userId: approval.userId,
+      firstName: approval.firstName,
+      lastName: approval.lastName,
+      email: approval.email,
+      phoneNumber: approval.phoneNumber || '',
+      relationship: approval.relationship,
+      children: [], // Start with empty array, children will be added after creation
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    // Only add optional fields if they exist
+    if (approval.occupation) {
+      parentData.occupation = approval.occupation;
+    }
+    if (approval.workplace) {
+      parentData.workplace = approval.workplace;
+    }
+    if (approval.address) {
+      parentData.address = approval.address;
+    }
+
+    // Create parent record
+    const parentRef = doc(db, 'parents', parentId);
+    batch.set(parentRef, parentData);
+    console.log('✅ Parent record prepared for creation');
+    
+    // Update user status
+    const userRef = doc(db, 'users', approval.userId);
+    batch.update(userRef, {
+      parentId, // Store the parentId in the user record
+      isPending: false,
+      isActive: true,
+      isApproved: true,
+      approvalStatus: 'approved',
+      approvedBy: adminId,
+      approvedAt: new Date(),
+      updatedAt: new Date()
+    });
+    console.log('✅ User record prepared for update');
+    
+    // Update approval record
+    const approvalRef = doc(db, 'pendingApprovals', approvalId);
+    batch.update(approvalRef, {
+      status: 'approved',
+      parentId, // Store the parentId in the approval
+      reviewedBy: adminId,
+      reviewedAt: new Date()
+    });
+    console.log('✅ Approval record prepared for update');
+
+    // Commit all changes
+    await batch.commit();
+    console.log('✅ Batch committed successfully');
+
+    // Now create children and link them to the parent
+    if (approval.children && approval.children.length > 0) {
+      console.log('👶 Creating children records...');
+      const { createStudent } = await import('./studentManagement');
+      const createdChildrenIds: string[] = [];
+
+      for (const child of approval.children) {
+        try {
+          // Create student record
+          const student = await createStudent({
+            ...child,
+            parentId,
+            parentName: `${approval.firstName} ${approval.lastName}`,
+            isActive: true
+          });
+
+          createdChildrenIds.push(student.id);
+          console.log(`✅ Child created: ${student.firstName} ${student.lastName}`);
+        } catch (error) {
+          console.error(`❌ Error creating child ${child.firstName}:`, error);
+          // Continue with other children even if one fails
+        }
+      }
+
+      // Update parent with children IDs
+      if (createdChildrenIds.length > 0) {
+        await updateDoc(parentRef, {
+          children: createdChildrenIds,
+          updatedAt: new Date()
+        });
+        console.log(`✅ Parent updated with ${createdChildrenIds.length} children`);
+      }
+    }
+    
+    // Create audit log
+    await createDetailedAuditLog({
+      userId: adminId,
+      userRole: 'admin',
+      userName: adminName,
+      action: 'PARENT_APPROVED',
+      details: `Approved parent registration for ${approval.firstName} ${approval.lastName}`,
+      affectedEntity: parentId,
+      affectedEntityType: 'parent',
+      afterData: { 
+        status: 'approved', 
+        childrenCount: approval.children?.length || 0 
+      },
+      success: true
+    });
+    
+    console.log('✅ Parent approved successfully:', parentId);
+  } catch (error) {
+    console.error('❌ Error approving parent:', error);
+    throw error;
+  }
+}
+
+/**
+ * Reject parent registration
+ * ✅ FIXED: Handles rejection when no parent record exists
+ */
+export async function rejectParent(
+  approvalId: string,
+  adminId: string,
+  adminName: string,
+  reason: string
+): Promise<void> {
+  try {
+    console.log('📄 Rejecting parent...');
+    
+    const approvalDoc = await getDoc(doc(db, 'pendingApprovals', approvalId));
+    if (!approvalDoc.exists()) {
+      throw new Error('Approval request not found');
+    }
+    
+    const approval = approvalDoc.data() as PendingParentApproval;
+
+    const batch = writeBatch(db);
+    
+    // Update approval record
+    const approvalRef = doc(db, 'pendingApprovals', approvalId);
+    batch.update(approvalRef, {
+      status: 'rejected',
+      reviewedBy: adminId,
+      reviewedAt: new Date(),
+      reviewNotes: reason
+    });
+    
+    // Update user status
+    const userRef = doc(db, 'users', approval.userId);
+    batch.update(userRef, {
+      isPending: false,
+      isActive: false,
+      isApproved: false,
+      approvalStatus: 'rejected',
+      rejectedBy: adminId,
+      rejectedAt: new Date(),
+      rejectionReason: reason,
+      updatedAt: new Date()
+    });
+
+    await batch.commit();
+
+    // ✅ FIX: Only delete parent if the record exists
+    if (approval.parentId) {
+      try {
+        await deleteParent(approval.parentId, adminId, adminName);
+      } catch (error) {
+        console.warn('Parent record not found during rejection (this is OK):', error);
+      }
+    }
+    
+    // Create audit log
+    await createDetailedAuditLog({
+      userId: adminId,
+      userRole: 'admin',
+      userName: adminName,
+      action: 'PARENT_REJECTED',
+      details: `Rejected parent registration for ${approval.firstName} ${approval.lastName}: ${reason}`,
+      affectedEntity: approval.userId,
+      affectedEntityType: 'user',
+      beforeData: { status: 'pending' },
+      afterData: { status: 'rejected', reason },
+      success: true
+    });
+    
+    console.log('✅ Parent rejected');
+  } catch (error) {
+    console.error('❌ Error rejecting parent:', error);
     throw error;
   }
 }

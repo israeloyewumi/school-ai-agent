@@ -1,24 +1,30 @@
-// lib/firebase/db.ts - Database Helper Functions (FIXED FOR YOUR ACTUAL FIREBASE STRUCTURE)
+// lib/firebase/db.ts - CLIENT SDK VERSION (Browser-Compatible)
 import { 
   collection, 
   doc, 
   getDoc, 
   getDocs, 
-  setDoc, 
+  addDoc, 
   updateDoc, 
   deleteDoc,
-  query,
-  where,
-  orderBy,
+  setDoc, 
+  query, 
+  where, 
+  orderBy, 
   limit,
   Timestamp,
-  addDoc
+  serverTimestamp,
+  DocumentData,
+  QueryConstraint
 } from 'firebase/firestore';
 import { db } from './config';
+
+// Type imports
 import type {
   Student,
   Teacher,
   Parent,
+  AcademicTrack,
   Attendance,
   Merit,
   StudentMeritSummary,
@@ -35,26 +41,24 @@ import type {
 // HELPER FUNCTIONS
 // ============================================
 
-// Convert session format to safe ID (2024/2025 -> 2024_2025)
 function sanitizeSession(session: string): string {
   return session.replace(/\//g, '_');
 }
 
-// Convert admission number to Firebase document ID
 async function getStudentDocId(admissionNumberOrDocId: string): Promise<string | null> {
-  // First, check if it's already a valid document ID by trying to fetch it
   try {
+    // Try as doc ID first
     const docRef = doc(db, 'students', admissionNumberOrDocId);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
-      return admissionNumberOrDocId; // It's a valid doc ID
+      return admissionNumberOrDocId;
     }
   } catch (error) {
-    // Not a valid doc ID, continue to search by admission number
+    // Not a valid doc ID
   }
 
-  // Search by admission number
   try {
+    // Try as admission number
     const q = query(
       collection(db, 'students'),
       where('admissionNumber', '==', admissionNumberOrDocId),
@@ -98,7 +102,7 @@ export async function createDocument<T>(
   try {
     const docRef = await addDoc(collection(db, collectionName), {
       ...data,
-      createdAt: Timestamp.now()
+      createdAt: serverTimestamp()
     });
     return docRef.id;
   } catch (error) {
@@ -116,7 +120,7 @@ export async function updateDocument(
     const docRef = doc(db, collectionName, docId);
     await updateDoc(docRef, {
       ...data,
-      updatedAt: Timestamp.now()
+      updatedAt: serverTimestamp()
     });
   } catch (error) {
     console.error(`Error updating document in ${collectionName}:`, error);
@@ -138,7 +142,6 @@ export async function deleteDocument(collectionName: string, docId: string): Pro
 // STUDENT OPERATIONS
 // ============================================
 
-// Get student by admission number
 export async function getStudentByAdmissionNumber(admissionNumber: string): Promise<Student | null> {
   try {
     const q = query(
@@ -152,21 +155,18 @@ export async function getStudentByAdmissionNumber(admissionNumber: string): Prom
       return null;
     }
     
-    const doc = snapshot.docs[0];
-    return { id: doc.id, ...doc.data() } as Student;
+    const docSnap = snapshot.docs[0];
+    return { id: docSnap.id, ...docSnap.data() } as Student;
   } catch (error) {
     console.error('Error getting student by admission number:', error);
     throw error;
   }
 }
 
-// UPDATED: Now searches by both document ID and admission number
 export async function getStudent(studentId: string): Promise<Student | null> {
-  // First try to get by document ID
   const byId = await getDocument<Student>('students', studentId);
   if (byId) return byId;
   
-  // If not found, try by admission number
   return getStudentByAdmissionNumber(studentId);
 }
 
@@ -178,6 +178,7 @@ export async function getStudentsByClass(classId: string): Promise<Student[]> {
       where('isActive', '==', true)
     );
     const snapshot = await getDocs(q);
+    
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
   } catch (error) {
     console.error('Error getting students by class:', error);
@@ -193,6 +194,7 @@ export async function getStudentsByParent(parentId: string): Promise<Student[]> 
       where('isActive', '==', true)
     );
     const snapshot = await getDocs(q);
+    
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
   } catch (error) {
     console.error('Error getting students by parent:', error);
@@ -200,7 +202,52 @@ export async function getStudentsByParent(parentId: string): Promise<Student[]> 
   }
 }
 
-// Add these to your lib/firebase/db.ts after STUDENT OPERATIONS
+export async function getStudentsBySubject(
+  subjectId: string,
+  classId?: string
+): Promise<Student[]> {
+  try {
+    const constraints: QueryConstraint[] = [where('isActive', '==', true)];
+    
+    if (classId) {
+      constraints.push(where('classId', '==', classId));
+    }
+
+    const q = query(collection(db, 'students'), ...constraints);
+    const snapshot = await getDocs(q);
+    const allStudents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
+    
+    return allStudents.filter(student => 
+      student.subjects && student.subjects.includes(subjectId)
+    );
+  } catch (error) {
+    console.error('Error fetching students by subject:', error);
+    throw error;
+  }
+}
+
+export async function getStudentsByTrack(
+  track: AcademicTrack,
+  classId?: string
+): Promise<Student[]> {
+  try {
+    const constraints: QueryConstraint[] = [
+      where('academicTrack', '==', track),
+      where('isActive', '==', true)
+    ];
+
+    if (classId) {
+      constraints.push(where('classId', '==', classId));
+    }
+
+    const q = query(collection(db, 'students'), ...constraints);
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
+  } catch (error) {
+    console.error('Error fetching students by track:', error);
+    throw error;
+  }
+}
 
 // ============================================
 // PARENT OPERATIONS
@@ -220,8 +267,6 @@ export async function getParent(parentId: string): Promise<Parent | null> {
     throw error;
   }
 }
-
-// NOTE: getStudentsByParent already exists in your db.ts - don't duplicate it!
 
 // ============================================
 // TEACHER OPERATIONS
@@ -249,7 +294,6 @@ export async function getTeacherClasses(teacherId: string): Promise<any[]> {
 
     const classes = [];
     
-    // 1. Check for assignedClass (primary class for class teachers)
     if (teacher.assignedClass?.classId) {
       try {
         const classDoc = await getDocument('classes', teacher.assignedClass.classId);
@@ -261,12 +305,11 @@ export async function getTeacherClasses(teacherId: string): Promise<any[]> {
       }
     }
     
-    // 2. Check for classes array (additional classes for subject teachers)
     if (Array.isArray(teacher.classes)) {
       for (const classId of teacher.classes) {
         try {
           const classDoc = await getDocument('classes', classId);
-          if (classDoc && !classes.some(c => c.id === classDoc.id)) {
+          if (classDoc && !classes.some((c: any) => c.id === (classDoc as any).id)) {
             classes.push(classDoc);
           }
         } catch (error) {
@@ -289,7 +332,6 @@ export async function getTeacherSubjects(teacherId: string): Promise<any[]> {
       return [];
     }
 
-    // Fetch all subjects the teacher teaches
     const subjectPromises = teacher.subjects.map(async (subjectId: string) => {
       const subjectDoc = await getDocument('subjects', subjectId);
       return subjectDoc;
@@ -362,7 +404,6 @@ export async function getClassResultsSummary(
       students.map(async (student) => {
         const results = await getStudentResults(student.id, term, session);
         
-        // Filter by subject if provided
         const filteredResults = subjectId 
           ? results.filter(r => r.subjectId === subjectId)
           : results;
@@ -400,11 +441,10 @@ export async function getClassResultsSummary(
 
 export async function getAdmin(adminId: string): Promise<any | null> {
   try {
-    // Admins are stored in the users collection
     const docRef = doc(db, 'users', adminId);
     const docSnap = await getDoc(docRef);
     
-    if (docSnap.exists() && docSnap.data().role === 'admin') {
+    if (docSnap.exists() && docSnap.data()?.role === 'admin') {
       return { id: docSnap.id, ...docSnap.data() };
     }
     return null;
@@ -421,6 +461,7 @@ export async function getAllStudents(): Promise<Student[]> {
       where('isActive', '==', true)
     );
     const snapshot = await getDocs(q);
+    
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
   } catch (error) {
     console.error('Error getting all students:', error);
@@ -435,6 +476,7 @@ export async function getAllTeachers(): Promise<Teacher[]> {
       where('isActive', '==', true)
     );
     const snapshot = await getDocs(q);
+    
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Teacher));
   } catch (error) {
     console.error('Error getting all teachers:', error);
@@ -444,14 +486,372 @@ export async function getAllTeachers(): Promise<Teacher[]> {
 
 export async function getAllClasses(): Promise<any[]> {
   try {
-    const q = query(
-      collection(db, 'classes'),
-      where('isActive', '==', true)
-    );
-    const snapshot = await getDocs(q);
+    const snapshot = await getDocs(collection(db, 'classes'));
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   } catch (error) {
     console.error('Error getting all classes:', error);
+    throw error;
+  }
+}
+
+// ============================================
+// ATTENDANCE OPERATIONS
+// ============================================
+
+export async function markAttendance(attendance: Omit<Attendance, 'id'>): Promise<string> {
+  return createDocument<Attendance>('attendance', attendance);
+}
+
+export async function getStudentAttendance(
+  studentIdOrAdmissionNumber: string,
+  term: string,
+  session: string
+): Promise<Attendance[]> {
+  try {
+    const studentDocId = await getStudentDocId(studentIdOrAdmissionNumber);
+    if (!studentDocId) {
+      console.warn('Student not found:', studentIdOrAdmissionNumber);
+      return [];
+    }
+
+    const q = query(
+      collection(db, 'attendance'),
+      where('studentId', '==', studentDocId),
+      where('term', '==', term),
+      where('session', '==', session),
+      orderBy('date', 'desc')
+    );
+    const snapshot = await getDocs(q);
+    
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Attendance));
+  } catch (error) {
+    console.error('Error getting student attendance:', error);
+    throw error;
+  }
+}
+
+export async function getClassAttendanceForDate(
+  classId: string,
+  date: Date
+): Promise<Attendance[]> {
+  try {
+    const timestamp = Timestamp.fromDate(date);
+    const q = query(
+      collection(db, 'attendance'),
+      where('classId', '==', classId),
+      where('date', '==', timestamp)
+    );
+    const snapshot = await getDocs(q);
+    
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Attendance));
+  } catch (error) {
+    console.error('Error getting class attendance:', error);
+    throw error;
+  }
+}
+
+// ============================================
+// MERIT SYSTEM OPERATIONS
+// ============================================
+
+export async function awardMerit(merit: Omit<Merit, 'id'>): Promise<string> {
+  try {
+    const studentDocId = await getStudentDocId(merit.studentId);
+    if (!studentDocId) {
+      throw new Error('Student not found: ' + merit.studentId);
+    }
+
+    const meritData = { ...merit, studentId: studentDocId };
+    const meritId = await createDocument<Merit>('merits', meritData);
+    
+    await updateStudentMeritSummary(studentDocId, merit.term, merit.session, merit.points);
+    
+    await createNotification({
+      userId: studentDocId,
+      type: 'merit',
+      title: merit.points > 0 ? '🏆 Merits Earned!' : '⚠️ Merits Deducted',
+      message: `${merit.points > 0 ? '+' : ''}${merit.points} merits: ${merit.reason}`,
+      relatedId: meritId,
+      isRead: false
+    });
+    
+    return meritId;
+  } catch (error) {
+    console.error('Error awarding merit:', error);
+    throw error;
+  }
+}
+
+async function updateStudentMeritSummary(
+  studentDocId: string,
+  term: string,
+  session: string,
+  points: number
+): Promise<void> {
+  try {
+    const sanitizedSession = sanitizeSession(session);
+    const summaryId = `${studentDocId}_${term}_${sanitizedSession}`;
+    
+    const summaryRef = doc(db, 'studentMeritSummaries', summaryId);
+    const summarySnap = await getDoc(summaryRef);
+    
+    if (summarySnap.exists()) {
+      const currentTotal = summarySnap.data()?.totalMerits || 0;
+      const newTotal = Math.max(0, currentTotal + points);
+      const level = getMeritLevel(newTotal);
+      
+      await updateDoc(summaryRef, {
+        totalMerits: newTotal,
+        level: level,
+        lastUpdated: serverTimestamp()
+      });
+    } else {
+      const newTotal = Math.max(0, points);
+      const level = getMeritLevel(newTotal);
+      
+      await updateDoc(summaryRef, {
+        studentId: studentDocId,
+        term,
+        session,
+        totalMerits: newTotal,
+        level: level,
+        rank: 0,
+        classRank: 0,
+        lastUpdated: serverTimestamp()
+      });
+    }
+  } catch (error) {
+    console.error('Error updating merit summary:', error);
+    throw error;
+  }
+}
+
+function getMeritLevel(points: number): string {
+  if (points >= 501) return 'diamond';
+  if (points >= 301) return 'platinum';
+  if (points >= 151) return 'gold';
+  if (points >= 51) return 'silver';
+  return 'bronze';
+}
+
+export async function getStudentMerits(
+  studentIdOrAdmissionNumber: string,
+  term: string,
+  session: string
+): Promise<Merit[]> {
+  try {
+    const studentDocId = await getStudentDocId(studentIdOrAdmissionNumber);
+    if (!studentDocId) {
+      console.warn('Student not found:', studentIdOrAdmissionNumber);
+      return [];
+    }
+
+    const q = query(
+      collection(db, 'merits'),
+      where('studentId', '==', studentDocId),
+      where('term', '==', term),
+      where('session', '==', session),
+      orderBy('date', 'desc')
+    );
+    const snapshot = await getDocs(q);
+    
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Merit));
+  } catch (error) {
+    console.error('Error getting student merits:', error);
+    throw error;
+  }
+}
+
+export async function getStudentMeritSummary(
+  studentIdOrAdmissionNumber: string,
+  term: string,
+  session: string
+): Promise<StudentMeritSummary | null> {
+  const studentDocId = await getStudentDocId(studentIdOrAdmissionNumber);
+  if (!studentDocId) return null;
+
+  const sanitizedSession = sanitizeSession(session);
+  const summaryId = `${studentDocId}_${term}_${sanitizedSession}`;
+  return getDocument<StudentMeritSummary>('studentMeritSummaries', summaryId);
+}
+
+// ============================================
+// RESULTS OPERATIONS
+// ============================================
+
+export async function recordResult(result: Omit<Result, 'id'>): Promise<string> {
+  const studentDocId = await getStudentDocId(result.studentId);
+  if (!studentDocId) {
+    throw new Error('Student not found: ' + result.studentId);
+  }
+
+  const resultData = { ...result, studentId: studentDocId };
+  return createDocument<Result>('results', resultData);
+}
+
+export async function getStudentResults(
+  studentIdOrAdmissionNumber: string,
+  term: string,
+  session: string
+): Promise<Result[]> {
+  try {
+    const studentDocId = await getStudentDocId(studentIdOrAdmissionNumber);
+    if (!studentDocId) {
+      console.warn('Student not found:', studentIdOrAdmissionNumber);
+      return [];
+    }
+
+    const q = query(
+      collection(db, 'results'),
+      where('studentId', '==', studentDocId),
+      where('term', '==', term),
+      where('session', '==', session)
+    );
+    const snapshot = await getDocs(q);
+    
+    return snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        studentId: data.studentId,
+        subjectId: data.subjectId,
+        classId: data.classId,
+        term: data.term,
+        session: data.session,
+        assessmentType: 'exam',
+        score: data.total || 0,
+        maxScore: 100,
+        grade: data.grade,
+        remark: data.remark,
+        teacherId: data.teacherId || '',
+        dateRecorded: data.createdAt || new Date()
+      } as Result;
+    });
+  } catch (error) {
+    console.error('Error getting student results:', error);
+    throw error;
+  }
+}
+
+// ============================================
+// FEE OPERATIONS
+// ============================================
+
+export async function getStudentFeePayments(
+  studentIdOrAdmissionNumber: string,
+  term: string,
+  session: string
+): Promise<any[]> {
+  try {
+    const studentDocId = await getStudentDocId(studentIdOrAdmissionNumber);
+    if (!studentDocId) {
+      return [];
+    }
+
+    const q = query(
+      collection(db, 'feePayments'),
+      where('studentId', '==', studentDocId),
+      where('term', '==', term),
+      where('session', '==', session)
+    );
+    const snapshot = await getDocs(q);
+    
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    console.error('Error getting student fee payments:', error);
+    throw error;
+  }
+}
+
+// ============================================
+// NOTIFICATION OPERATIONS
+// ============================================
+
+export async function createNotification(
+  notification: Omit<Notification, 'id' | 'createdAt'>
+): Promise<string> {
+  return createDocument('notifications', notification);
+}
+
+export async function getUserNotifications(
+  userId: string,
+  limitCount: number = 20
+): Promise<Notification[]> {
+  try {
+    const q = query(
+      collection(db, 'notifications'),
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc'),
+      limit(limitCount)
+    );
+    const snapshot = await getDocs(q);
+    
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
+  } catch (error) {
+    console.error('Error getting user notifications:', error);
+    throw error;
+  }
+}
+
+export async function markNotificationAsRead(notificationId: string): Promise<void> {
+  return updateDocument('notifications', notificationId, { isRead: true });
+}
+
+// ============================================
+// ADDITIONAL ADMIN OPERATIONS (CONTINUATION)
+// ============================================
+
+export async function getStudentCurriculumStats(): Promise<{
+  byTrack: Record<string, number>;
+  byGrade: Record<number, { total: number; withSubjects: number }>;
+  totalWithSubjects: number;
+  totalWithoutSubjects: number;
+}> {
+  try {
+    const students = await getAllStudents();
+    
+    const byTrack: Record<string, number> = {
+      Science: 0,
+      Arts: 0,
+      Commercial: 0,
+      None: 0
+    };
+    
+    const byGrade: Record<number, { total: number; withSubjects: number }> = {};
+    let totalWithSubjects = 0;
+    let totalWithoutSubjects = 0;
+    
+    students.forEach(student => {
+      if (student.academicTrack) {
+        byTrack[student.academicTrack] = (byTrack[student.academicTrack] || 0) + 1;
+      } else {
+        byTrack.None++;
+      }
+      
+      const grade = parseInt(student.className.match(/\d+/)?.[0] || '0');
+      if (grade > 0) {
+        if (!byGrade[grade]) {
+          byGrade[grade] = { total: 0, withSubjects: 0 };
+        }
+        byGrade[grade].total++;
+        
+        if (student.subjects && student.subjects.length > 0) {
+          byGrade[grade].withSubjects++;
+          totalWithSubjects++;
+        } else {
+          totalWithoutSubjects++;
+        }
+      }
+    });
+    
+    return {
+      byTrack,
+      byGrade,
+      totalWithSubjects,
+      totalWithoutSubjects
+    };
+  } catch (error) {
+    console.error('Error getting curriculum stats:', error);
     throw error;
   }
 }
@@ -465,7 +865,6 @@ export async function getSchoolStatistics(
     const teachers = await getAllTeachers();
     const classes = await getAllClasses();
     
-    // Calculate total merit points
     const meritQuery = query(
       collection(db, 'merits'),
       where('term', '==', term),
@@ -474,7 +873,6 @@ export async function getSchoolStatistics(
     const meritSnapshot = await getDocs(meritQuery);
     const totalMerits = meritSnapshot.docs.reduce((sum, doc) => sum + (doc.data().points || 0), 0);
     
-    // Calculate fee collection
     const feeQuery = query(
       collection(db, 'feePayments'),
       where('term', '==', term),
@@ -483,7 +881,6 @@ export async function getSchoolStatistics(
     const feeSnapshot = await getDocs(feeQuery);
     const totalFeesCollected = feeSnapshot.docs.reduce((sum, doc) => sum + (doc.data().amount || 0), 0);
     
-    // Get attendance stats
     const attendanceQuery = query(
       collection(db, 'attendance'),
       where('term', '==', term),
@@ -497,6 +894,8 @@ export async function getSchoolStatistics(
       ? Math.round((presentCount / totalAttendance) * 100) 
       : 0;
     
+    const curriculumStats = await getStudentCurriculumStats();
+    
     return {
       term,
       session,
@@ -506,6 +905,11 @@ export async function getSchoolStatistics(
       totalMeritsAwarded: totalMerits,
       totalFeesCollected,
       overallAttendanceRate: attendanceRate,
+      curriculumStats: {
+        byTrack: curriculumStats.byTrack,
+        totalWithSubjects: curriculumStats.totalWithSubjects,
+        totalWithoutSubjects: curriculumStats.totalWithoutSubjects
+      },
       generatedAt: new Date()
     };
   } catch (error) {
@@ -517,7 +921,7 @@ export async function getSchoolStatistics(
 export async function getTopPerformingStudents(
   term: string,
   session: string,
-  limit: number = 10
+  limitCount: number = 10
 ): Promise<any[]> {
   try {
     const students = await getAllStudents();
@@ -540,11 +944,10 @@ export async function getTopPerformingStudents(
       })
     );
     
-    // Sort by average (descending) and take top N
     return studentPerformances
       .filter(sp => sp.totalSubjects > 0)
       .sort((a, b) => b.average - a.average)
-      .slice(0, limit);
+      .slice(0, limitCount);
   } catch (error) {
     console.error('Error getting top performing students:', error);
     throw error;
@@ -574,7 +977,6 @@ export async function getStudentsNeedingAttention(
         
         const totalMerits = merits.reduce((sum, m) => sum + m.points, 0);
         
-        // Flag students needing attention
         const needsAttention = average < 50 || attendanceRate < 75 || totalMerits < 0;
         
         return {
@@ -614,7 +1016,7 @@ export async function getFeeCollectionReport(
         const payments = await getStudentFeePayments(student.id, term, session);
         
         const totalPaid = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
-        const expectedFees = 150000; // This should come from fee structure
+        const expectedFees = 150000;
         const balance = expectedFees - totalPaid;
         const status = balance === 0 ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid');
         
@@ -656,382 +1058,47 @@ export async function getFeeCollectionReport(
     throw error;
   }
 }
-// ============================================
-// ATTENDANCE OPERATIONS
-// ============================================
-
-export async function markAttendance(attendance: Omit<Attendance, 'id'>): Promise<string> {
-  return createDocument<Attendance>('attendance', attendance);
-}
-
-// UPDATED: Now converts admission number to doc ID before querying
-export async function getStudentAttendance(
-  studentIdOrAdmissionNumber: string,
-  term: string,
-  session: string
-): Promise<Attendance[]> {
-  try {
-    // Convert admission number to Firebase doc ID if needed
-    const studentDocId = await getStudentDocId(studentIdOrAdmissionNumber);
-    if (!studentDocId) {
-      console.warn('Student not found:', studentIdOrAdmissionNumber);
-      return [];
-    }
-
-    const q = query(
-      collection(db, 'attendance'),
-      where('studentId', '==', studentDocId),
-      where('term', '==', term),
-      where('session', '==', session),
-      orderBy('date', 'desc')
-    );
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Attendance));
-  } catch (error) {
-    console.error('Error getting student attendance:', error);
-    throw error;
-  }
-}
-
-export async function getClassAttendanceForDate(
-  classId: string,
-  date: Date
-): Promise<Attendance[]> {
-  try {
-    const q = query(
-      collection(db, 'attendance'),
-      where('classId', '==', classId),
-      where('date', '==', Timestamp.fromDate(date))
-    );
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Attendance));
-  } catch (error) {
-    console.error('Error getting class attendance:', error);
-    throw error;
-  }
-}
-
-// ============================================
-// MERIT SYSTEM OPERATIONS
-// ============================================
-
-export async function awardMerit(merit: Omit<Merit, 'id'>): Promise<string> {
-  try {
-    // Convert admission number to doc ID if needed
-    const studentDocId = await getStudentDocId(merit.studentId);
-    if (!studentDocId) {
-      throw new Error('Student not found: ' + merit.studentId);
-    }
-
-    // Create merit record with Firebase doc ID
-    const meritData = { ...merit, studentId: studentDocId };
-    const meritId = await createDocument<Merit>('merits', meritData);
-    
-    // Update student merit summary
-    await updateStudentMeritSummary(studentDocId, merit.term, merit.session, merit.points);
-    
-    // Create notification for student
-    await createNotification({
-      userId: studentDocId,
-      type: 'merit',
-      title: merit.points > 0 ? '🌟 Merits Earned!' : '⚠️ Merits Deducted',
-      message: `${merit.points > 0 ? '+' : ''}${merit.points} merits: ${merit.reason}`,
-      relatedId: meritId,
-      isRead: false
-    });
-    
-    return meritId;
-  } catch (error) {
-    console.error('Error awarding merit:', error);
-    throw error;
-  }
-}
-
-async function updateStudentMeritSummary(
-  studentDocId: string,
-  term: string,
-  session: string,
-  points: number
-): Promise<void> {
-  try {
-    const sanitizedSession = sanitizeSession(session);
-    const summaryId = `${studentDocId}_${term}_${sanitizedSession}`;
-    
-    const summaryRef = doc(db, 'studentMeritSummaries', summaryId);
-    const summarySnap = await getDoc(summaryRef);
-    
-    if (summarySnap.exists()) {
-      const currentTotal = summarySnap.data().totalMerits || 0;
-      const newTotal = Math.max(0, currentTotal + points);
-      const level = getMeritLevel(newTotal);
-      
-      await updateDoc(summaryRef, {
-        totalMerits: newTotal,
-        level: level,
-        lastUpdated: Timestamp.now()
-      });
-    } else {
-      const newTotal = Math.max(0, points);
-      const level = getMeritLevel(newTotal);
-      
-      await setDoc(summaryRef, {
-        studentId: studentDocId,
-        term,
-        session,
-        totalMerits: newTotal,
-        level: level,
-        rank: 0,
-        classRank: 0,
-        lastUpdated: Timestamp.now()
-      });
-    }
-  } catch (error) {
-    console.error('Error updating merit summary:', error);
-    throw error;
-  }
-}
-
-function getMeritLevel(points: number): string {
-  if (points >= 501) return 'diamond';
-  if (points >= 301) return 'platinum';
-  if (points >= 151) return 'gold';
-  if (points >= 51) return 'silver';
-  return 'bronze';
-}
-
-// UPDATED: Converts admission number to doc ID
-export async function getStudentMerits(
-  studentIdOrAdmissionNumber: string,
-  term: string,
-  session: string
-): Promise<Merit[]> {
-  try {
-    const studentDocId = await getStudentDocId(studentIdOrAdmissionNumber);
-    if (!studentDocId) {
-      console.warn('Student not found:', studentIdOrAdmissionNumber);
-      return [];
-    }
-
-    const q = query(
-      collection(db, 'merits'),
-      where('studentId', '==', studentDocId),
-      where('term', '==', term),
-      where('session', '==', session),
-      orderBy('date', 'desc')
-    );
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Merit));
-  } catch (error) {
-    console.error('Error getting student merits:', error);
-    throw error;
-  }
-}
-
-export async function getStudentMeritSummary(
-  studentIdOrAdmissionNumber: string,
-  term: string,
-  session: string
-): Promise<StudentMeritSummary | null> {
-  const studentDocId = await getStudentDocId(studentIdOrAdmissionNumber);
-  if (!studentDocId) return null;
-
-  const sanitizedSession = sanitizeSession(session);
-  const summaryId = `${studentDocId}_${term}_${sanitizedSession}`;
-  return getDocument<StudentMeritSummary>('studentMeritSummaries', summaryId);
-}
-
-export async function getClassMeritLeaderboard(
-  classId: string,
-  term: string,
-  session: string,
-  limitCount: number = 10
-): Promise<StudentMeritSummary[]> {
-  try {
-    const students = await getStudentsByClass(classId);
-    const studentIds = students.map(s => s.id);
-    
-    const summaries: StudentMeritSummary[] = [];
-    for (const studentId of studentIds) {
-      const summary = await getStudentMeritSummary(studentId, term, session);
-      if (summary) {
-        summaries.push(summary);
-      }
-    }
-    
-    return summaries
-      .sort((a, b) => b.totalMerits - a.totalMerits)
-      .slice(0, limitCount);
-  } catch (error) {
-    console.error('Error getting class merit leaderboard:', error);
-    throw error;
-  }
-}
-
-// ============================================
-// RESULTS OPERATIONS
-// ============================================
-
-export async function recordResult(result: Omit<Result, 'id'>): Promise<string> {
-  // Convert admission number to doc ID if needed
-  const studentDocId = await getStudentDocId(result.studentId);
-  if (!studentDocId) {
-    throw new Error('Student not found: ' + result.studentId);
-  }
-
-  const resultData = { ...result, studentId: studentDocId };
-  return createDocument<Result>('results', resultData);
-}
-
-// UPDATED: Converts admission number and handles actual Firebase structure
-export async function getStudentResults(
-  studentIdOrAdmissionNumber: string,
-  term: string,
-  session: string
-): Promise<Result[]> {
-  try {
-    const studentDocId = await getStudentDocId(studentIdOrAdmissionNumber);
-    if (!studentDocId) {
-      console.warn('Student not found:', studentIdOrAdmissionNumber);
-      return [];
-    }
-
-    const q = query(
-      collection(db, 'results'),
-      where('studentId', '==', studentDocId),
-      where('term', '==', term),
-      where('session', '==', session)
-    );
-    const snapshot = await getDocs(q);
-    
-    // Map Firebase structure (ca1, ca2, exam, total) to Result type
-    return snapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        studentId: data.studentId,
-        subjectId: data.subjectId,
-        classId: data.classId,
-        term: data.term,
-        session: data.session,
-        // Firebase has ca1, ca2, exam structure, but we'll map to generic fields
-        assessmentType: 'exam', // Default since Firebase doesn't have this field
-        score: data.total || 0,
-        maxScore: 100, // Default
-        grade: data.grade,
-        remark: data.remark,
-        teacherId: data.teacherId || '',
-        dateRecorded: data.createdAt || new Date()
-      } as Result;
-    });
-  } catch (error) {
-    console.error('Error getting student results:', error);
-    throw error;
-  }
-}
-
-// NEW: Get results in the actual Firebase format (ca1, ca2, exam)
-export async function getStudentResultsRaw(
-  studentIdOrAdmissionNumber: string,
-  term: string,
-  session: string
-): Promise<any[]> {
-  try {
-    const studentDocId = await getStudentDocId(studentIdOrAdmissionNumber);
-    if (!studentDocId) {
-      return [];
-    }
-
-    const q = query(
-      collection(db, 'results'),
-      where('studentId', '==', studentDocId),
-      where('term', '==', term),
-      where('session', '==', session)
-    );
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  } catch (error) {
-    console.error('Error getting student results raw:', error);
-    throw error;
-  }
-}
-
-// ============================================
-// FEE OPERATIONS
-// ============================================
-
-export async function recordFeePayment(payment: Omit<FeePayment, 'id'>): Promise<string> {
-  try {
-    // Convert admission number to doc ID if needed
-    const studentDocId = await getStudentDocId(payment.studentId);
-    if (!studentDocId) {
-      throw new Error('Student not found: ' + payment.studentId);
-    }
-
-    const paymentData = { ...payment, studentId: studentDocId };
-    const paymentId = await createDocument<FeePayment>('feePayments', paymentData);
-    
-    await updateStudentFeeStatus(studentDocId, payment.term, payment.session);
-    
-    await createNotification({
-      userId: studentDocId,
-      type: 'fee',
-      title: '💰 Payment Received',
-      message: `Payment of ₦${payment.amountPaid.toLocaleString()} received. Receipt: ${payment.receiptNumber}`,
-      relatedId: paymentId,
-      isRead: false
-    });
-    
-    return paymentId;
-  } catch (error) {
-    console.error('Error recording fee payment:', error);
-    throw error;
-  }
-}
 
 async function updateStudentFeeStatus(
   studentDocId: string,
   term: string,
   session: string
 ): Promise<void> {
-  // Simplified for now
-}
-
-export async function getStudentFeeStatus(
-  studentIdOrAdmissionNumber: string,
-  term: string,
-  session: string
-): Promise<StudentFeeStatus | null> {
-  const studentDocId = await getStudentDocId(studentIdOrAdmissionNumber);
-  if (!studentDocId) return null;
-
-  const sanitizedSession = sanitizeSession(session);
-  const statusId = `${studentDocId}_${term}_${sanitizedSession}`;
-  return getDocument<StudentFeeStatus>('studentFeeStatus', statusId);
-}
-
-// NEW: Get fee payments for student (handles actual Firebase structure)
-export async function getStudentFeePayments(
-  studentIdOrAdmissionNumber: string,
-  term: string,
-  session: string
-): Promise<any[]> {
   try {
-    const studentDocId = await getStudentDocId(studentIdOrAdmissionNumber);
-    if (!studentDocId) {
-      return [];
+    const payments = await getStudentFeePayments(studentDocId, term, session);
+    
+    const totalPaid = payments.reduce((sum, p) => sum + (p.amountPaid || p.amount || 0), 0);
+    const expectedFees = 150000; // This should ideally come from fee structure
+    const balance = expectedFees - totalPaid;
+    const status = balance === 0 ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid');
+    
+    const statusId = `${studentDocId}-${term}-${session.replace(/\//g, '-')}`;
+    const statusRef = doc(db, 'studentFeeStatuses', statusId);
+    const statusSnap = await getDoc(statusRef);
+    
+    const feeStatusData = {
+      studentId: studentDocId,
+      term,
+      session,
+      expectedFees,
+      totalPaid,
+      balance,
+      status,
+      lastPaymentDate: payments.length > 0 ? payments[0].paymentDate : null,
+      updatedAt: serverTimestamp()
+    };
+    
+    if (statusSnap.exists()) {
+      await updateDoc(statusRef, feeStatusData);
+    } else {
+      await setDoc(statusRef, {
+        ...feeStatusData,
+        createdAt: serverTimestamp()
+      });
     }
-
-    const q = query(
-      collection(db, 'feePayments'),
-      where('studentId', '==', studentDocId),
-      where('term', '==', term),
-      where('session', '==', session)
-    );
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   } catch (error) {
-    console.error('Error getting student fee payments:', error);
-    throw error;
+    console.error('Error updating student fee status:', error);
+    // Don't throw - this is a background update
   }
 }
 
@@ -1063,44 +1130,12 @@ export async function getClassAssignments(
       orderBy('dueDate', 'desc')
     );
     const snapshot = await getDocs(q);
+    
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Assignment));
   } catch (error) {
     console.error('Error getting class assignments:', error);
     throw error;
   }
-}
-
-// ============================================
-// NOTIFICATION OPERATIONS
-// ============================================
-
-export async function createNotification(
-  notification: Omit<Notification, 'id' | 'createdAt'>
-): Promise<string> {
-  return createDocument('notifications', notification);
-}
-
-export async function getUserNotifications(
-  userId: string,
-  limitCount: number = 20
-): Promise<Notification[]> {
-  try {
-    const q = query(
-      collection(db, 'notifications'),
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc'),
-      limit(limitCount)
-    );
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
-  } catch (error) {
-    console.error('Error getting user notifications:', error);
-    throw error;
-  }
-}
-
-export async function markNotificationAsRead(notificationId: string): Promise<void> {
-  return updateDocument('notifications', notificationId, { isRead: true });
 }
 
 // ============================================
@@ -1116,6 +1151,7 @@ export async function createAnnouncement(
 export async function getActiveAnnouncements(role?: string): Promise<Announcement[]> {
   try {
     let q;
+    
     if (role) {
       q = query(
         collection(db, 'announcements'),
@@ -1130,10 +1166,145 @@ export async function getActiveAnnouncements(role?: string): Promise<Announcemen
         orderBy('createdAt', 'desc')
       );
     }
+    
     const snapshot = await getDocs(q);
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement));
   } catch (error) {
     console.error('Error getting announcements:', error);
+    throw error;
+  }
+}
+
+// ============================================
+// ADDITIONAL FEE OPERATIONS
+// ============================================
+
+export async function recordFeePayment(payment: Omit<FeePayment, 'id'>): Promise<string> {
+  try {
+    const studentDocId = await getStudentDocId(payment.studentId);
+    if (!studentDocId) {
+      throw new Error('Student not found: ' + payment.studentId);
+    }
+
+    const paymentData = { ...payment, studentId: studentDocId };
+    const paymentId = await createDocument<FeePayment>('feePayments', paymentData);
+    
+    await createNotification({
+      userId: studentDocId,
+      type: 'fee',
+      title: '💰 Payment Received',
+      message: `Payment of ₦${payment.amountPaid.toLocaleString()} received. Receipt: ${payment.receiptNumber}`,
+      relatedId: paymentId,
+      isRead: false
+    });
+    
+    return paymentId;
+  } catch (error) {
+    console.error('Error recording fee payment:', error);
+    throw error;
+  }
+}
+
+export async function getStudentFeeStatus(
+  studentIdOrAdmissionNumber: string,
+  term: string,
+  session: string
+): Promise<StudentFeeStatus | null> {
+  try {
+    const studentDocId = await getStudentDocId(studentIdOrAdmissionNumber);
+    if (!studentDocId) return null;
+
+    const statusId = `${studentDocId}-${term}-${session.replace(/\//g, '-')}`;
+    return getDocument<StudentFeeStatus>('studentFeeStatuses', statusId);
+  } catch (error) {
+    console.error('Error getting student fee status:', error);
+    return null;
+  }
+}
+
+// ============================================
+// ADDITIONAL RESULT OPERATIONS
+// ============================================
+
+export async function getStudentResultsRaw(
+  studentIdOrAdmissionNumber: string,
+  term: string,
+  session: string
+): Promise<any[]> {
+  try {
+    const studentDocId = await getStudentDocId(studentIdOrAdmissionNumber);
+    if (!studentDocId) {
+      return [];
+    }
+
+    const q = query(
+      collection(db, 'results'),
+      where('studentId', '==', studentDocId),
+      where('term', '==', term),
+      where('session', '==', session)
+    );
+    const snapshot = await getDocs(q);
+    
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    console.error('Error getting student results raw:', error);
+    throw error;
+  }
+}
+
+// ============================================
+// CLASS MERIT LEADERBOARD
+// ============================================
+
+export async function getClassMeritLeaderboard(
+  classId: string,
+  limitCount: number = 10
+): Promise<Array<{
+  studentId: string;
+  studentName: string;
+  totalMerits: number;
+  meritBreakdown: Record<string, number>;
+}>> {
+  try {
+    const q = query(
+      collection(db, 'meritPoints'),
+      where('classId', '==', classId)
+    );
+    const snapshot = await getDocs(q);
+
+    const studentMerits: Record<string, {
+      studentName: string;
+      totalMerits: number;
+      meritBreakdown: Record<string, number>;
+    }> = {};
+
+    snapshot.forEach(docSnap => {
+      const merit = docSnap.data() as any;
+      if (!studentMerits[merit.studentId]) {
+        studentMerits[merit.studentId] = {
+          studentName: merit.studentName,
+          totalMerits: 0,
+          meritBreakdown: {}
+        };
+      }
+
+      studentMerits[merit.studentId].totalMerits += merit.points;
+      const category = merit.category || 'Other';
+      studentMerits[merit.studentId].meritBreakdown[category] = 
+        (studentMerits[merit.studentId].meritBreakdown[category] || 0) + merit.points;
+    });
+
+    const summaries = Object.entries(studentMerits).map(([studentId, data]) => ({
+      studentId,
+      ...data
+    }));
+
+    return summaries
+      .sort((a, b) => b.totalMerits - a.totalMerits)
+      .slice(0, limitCount);
+
+  } catch (error) {
+    console.error('Error fetching class merit leaderboard:', error);
     throw error;
   }
 }

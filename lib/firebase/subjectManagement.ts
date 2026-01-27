@@ -1,4 +1,4 @@
-// lib/firebase/subjectManagement.ts - Subject CRUD Operations
+// lib/firebase/subjectManagement.ts - Subject CRUD Operations (CLIENT SDK - COMPLETE)
 
 import {
   collection,
@@ -14,23 +14,31 @@ import {
 } from 'firebase/firestore';
 import { db } from './config';
 import { Subject, SubjectTeacher } from '@/types/database';
-import { NIGERIAN_SUBJECTS } from '@/lib/config/schoolData';
+import { ALL_SUBJECTS } from '@/lib/config/schoolData';
 import { createDetailedAuditLog } from './auditLogs';
+
+// ============================================
+// SUBJECT INITIALIZATION
+// ============================================
 
 /**
  * Initialize all subjects in Firestore (run once during setup)
  */
 export async function initializeAllSubjects(): Promise<void> {
   try {
+    console.log('📄 Starting subject initialization...');
+    console.log(`📚 Total unique subjects to create: ${ALL_SUBJECTS.length}`);
+    
     const batch = writeBatch(db);
+    let count = 0;
 
-    for (const subjectInfo of NIGERIAN_SUBJECTS) {
+    for (const subjectInfo of ALL_SUBJECTS) {
       const subjectDoc: Subject = {
         id: subjectInfo.subjectId,
         subjectId: subjectInfo.subjectId,
         name: subjectInfo.subjectName,
         subjectName: subjectInfo.subjectName,
-        code: subjectInfo.subjectId.toUpperCase(),
+        code: subjectInfo.subjectId.toUpperCase().replace(/_/g, '-'),
         category: subjectInfo.category,
         isCore: subjectInfo.isCore,
         teachers: [],
@@ -41,16 +49,76 @@ export async function initializeAllSubjects(): Promise<void> {
       };
 
       const subjectRef = doc(db, 'subjects', subjectInfo.subjectId);
-      batch.set(subjectRef, subjectDoc);
+      batch.set(subjectRef, subjectDoc, { merge: true });
+      count++;
+      
+      if (count % 10 === 0) {
+        console.log(`  ✓ ${count}/${ALL_SUBJECTS.length} subjects prepared...`);
+      }
     }
 
     await batch.commit();
-    console.log('✅ All subjects initialized');
+    console.log(`✅ All ${ALL_SUBJECTS.length} subjects initialized successfully!`);
+    
+    // Verify initialization
+    const verification = await verifyAllSubjectsExist();
+    if (verification.allExist) {
+      console.log('✅ Verification passed - all subjects exist in database');
+    } else {
+      console.error('⚠️ Verification failed - missing subjects:', verification.missingSubjects);
+      throw new Error(`Failed to create subjects: ${verification.missingSubjects.join(', ')}`);
+    }
   } catch (error) {
     console.error('❌ Error initializing subjects:', error);
     throw error;
   }
 }
+
+/**
+ * Verify all subjects from config exist in database
+ */
+export async function verifyAllSubjectsExist(): Promise<{ 
+  allExist: boolean; 
+  missingSubjects: string[];
+  totalExpected: number;
+  totalFound: number;
+}> {
+  try {
+    const missingSubjects: string[] = [];
+    const expectedSubjectIds = ALL_SUBJECTS.map(s => s.subjectId);
+    
+    console.log('🔍 Verifying subjects in database...');
+    console.log(`📊 Expected unique subjects: ${expectedSubjectIds.length}`);
+    
+    for (const subjectId of expectedSubjectIds) {
+      const subjectDocRef = doc(db, 'subjects', subjectId);
+      const subjectDoc = await getDoc(subjectDocRef);
+      if (!subjectDoc.exists()) {
+        missingSubjects.push(subjectId);
+      }
+    }
+    
+    console.log(`📚 Found ${expectedSubjectIds.length - missingSubjects.length} subjects in database`);
+    
+    if (missingSubjects.length > 0) {
+      console.log(`⚠️ Missing ${missingSubjects.length} subjects:`, missingSubjects);
+    }
+    
+    return {
+      allExist: missingSubjects.length === 0,
+      missingSubjects,
+      totalExpected: expectedSubjectIds.length,
+      totalFound: expectedSubjectIds.length - missingSubjects.length
+    };
+  } catch (error) {
+    console.error('❌ Error verifying subjects:', error);
+    throw error;
+  }
+}
+
+// ============================================
+// SUBJECT RETRIEVAL
+// ============================================
 
 /**
  * Get subject by ID
@@ -132,6 +200,10 @@ export async function getCoreSubjectsForGrade(grade: number): Promise<Subject[]>
     throw error;
   }
 }
+
+// ============================================
+// TEACHER-SUBJECT MANAGEMENT
+// ============================================
 
 /**
  * Add teacher to subject
@@ -335,6 +407,10 @@ export async function teacherTeachesSubject(
     throw error;
   }
 }
+
+// ============================================
+// SUBJECT STATISTICS & UPDATES
+// ============================================
 
 /**
  * Get subject statistics

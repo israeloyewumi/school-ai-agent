@@ -1,4 +1,4 @@
-// app/login/page.tsx - FIXED: Proper loading state management
+// app/login/page.tsx - FIXED: Proper authentication call
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -21,7 +21,6 @@ export default function LoginPage() {
       setSuccessMessage('✅ Registration successful! Please login with your credentials.');
     }
     
-    // ✅ CRITICAL FIX: Reset loading state when component mounts
     setIsLoading(false);
   }, [searchParams]);
 
@@ -32,33 +31,29 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      // Login user
-      const user = await loginUser({ email, password });
+      // ✅ FIXED: Pass email and password as separate arguments, not as object
+      const user = await loginUser(email, password);
       
       console.log('Login successful:', user);
       
-      // ✅ FIX: Don't set loading to false before navigation
-      // The component will unmount during navigation anyway
-      
-// Route based on role - redirect to ATLAS AI for admin and parent
-if (user.role === 'admin') {
-  router.push('/admin/atlas');  // ← CHANGED
-} else if (user.role === 'parent') {
-  router.push('/parent/atlas');  // ← ADDED (parents also go to ATLAS AI)
-} else {
-  router.push('/');
-}
+      // Route based on role - redirect to ATLAS AI for admin and parent
+      if (user.role === 'admin') {
+        router.push('/admin/atlas');
+      } else if (user.role === 'parent') {
+        router.push('/parent/atlas');
+      } else {
+        router.push('/');
+      }
       
     } catch (error: any) {
       console.error('Login error:', error);
       setError(error.message || 'Failed to login. Please check your credentials.');
-      setIsLoading(false); // ✅ Only set to false on error (stays on page)
+      setIsLoading(false);
     }
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      {/* ✅ OPTIONAL: Add conditional rendering to prevent interaction during loading */}
       {isLoading && (
         <div className="fixed inset-0 bg-blue-500/20 backdrop-blur-sm z-50 flex items-center justify-center">
           <div className="bg-white rounded-lg p-6 shadow-xl">

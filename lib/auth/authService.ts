@@ -1,400 +1,405 @@
-// lib/auth/authService.ts - Authentication Service (UPDATED with Parent Registration)
-
+// lib/auth/authService.ts - Firebase SDK Authentication Service (COMPLETE)
+// ✅ FIXED: Handles undefined requestedClass for subject-only teachers
 import { 
   signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
   createUserWithEmailAndPassword,
-  signOut as firebaseSignOut,
   User as FirebaseUser
 } from 'firebase/auth';
-import { 
-  doc, 
-  setDoc, 
-  getDoc, 
-  updateDoc,
-  collection,
-  addDoc,
-  Timestamp 
-} from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase/config';
-import { AuthUser, LoginCredentials, RegisterData, AuditLog } from '@/types/auth';
-import { createTeacher } from '@/lib/firebase/teacherManagement';
-import { createPendingApproval } from '@/lib/firebase/teacherManagement';
-import { createParent, addChildToParent } from '@/lib/firebase/parentManagement';
-import { createStudent } from '@/lib/firebase/studentManagement';
-import { 
-  assignClassTeacher, 
-  assignSubjectTeacher 
-} from '@/lib/firebase/classManagement';
-import { addTeacherToSubject } from '@/lib/firebase/subjectManagement';
+import { AuthUser, RegisterData } from '@/types/auth';
+import { createPendingApproval as submitTeacherForApproval } from '@/lib/firebase/teacherManagement';
+import { submitParentForApproval } from '@/lib/firebase/parentManagement';
+import { createAdmin } from '@/lib/firebase/adminManagement';
 
 /**
- * Register a new user (Enhanced for Teacher & Parent Registration)
+ * Get the current authenticated user with their role data
  */
-export async function registerUser(data: RegisterData): Promise<AuthUser> {
-  try {
-    console.log('📝 Starting registration for:', data.email, 'Role:', data.role);
-    
-    // Create Firebase Auth user
-    const userCredential = await createUserWithEmailAndPassword(
-      auth,
-      data.email,
-      data.password
-    );
-    
-    const firebaseUser = userCredential.user;
-    
-    console.log('✅ Firebase Auth user created:', firebaseUser.uid);
-    
-    // Determine if user needs approval (only teachers)
-    const needsApproval = data.role === 'teacher';
-    
-    // Build the user document data
-    const firestoreData: any = {
-      id: firebaseUser.uid,
-      email: data.email,
-      role: data.role,
-      firstName: data.firstName,
-      lastName: data.lastName,
-      phoneNumber: data.phoneNumber,
-      isActive: needsApproval ? false : true, // Teachers start inactive
-      isPending: needsApproval ? true : false, // Teachers need approval
-      createdAt: Timestamp.now(),
-      updatedAt: Timestamp.now()
-    };
-    
-    // Add role-specific IDs
-    if (data.role === 'student' && data.admissionNumber) {
-      firestoreData.studentId = data.admissionNumber;
-    } else if (data.role === 'teacher') {
-      firestoreData.teacherId = firebaseUser.uid;
-      if (data.staffId) {
-        firestoreData.staffId = data.staffId;
-      }
-    } else if (data.role === 'parent') {
-      firestoreData.parentId = firebaseUser.uid;
-    } else if (data.role === 'admin') {
-      firestoreData.adminId = firebaseUser.uid;
-    }
-    
-    console.log('💾 Saving user to Firestore:', {
-      userId: firebaseUser.uid,
-      role: data.role,
-      needsApproval
-    });
-    
-    // Save to Firestore users collection
-    await setDoc(doc(db, 'users', firebaseUser.uid), firestoreData);
-    
-    console.log('✅ User document saved to Firestore');
-    
-    // TEACHER REGISTRATION: Create teacher record and pending approval
-    if (data.role === 'teacher' && data.teacherType) {
-      console.log('👨‍🏫 Creating teacher record...');
+export async function getCurrentUser(): Promise<AuthUser | null> {
+  return new Promise((resolve) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      unsubscribe();
       
-      // Determine teacher flags
-      const isClassTeacher = data.teacherType === 'class_teacher' || data.teacherType === 'both';
-      const isSubjectTeacher = data.teacherType === 'subject_teacher' || data.teacherType === 'both';
-      
-      // Create teacher record (filter out undefined values for Firestore)
-      const teacherData: any = {
-        teacherId: firebaseUser.uid,
-        userId: firebaseUser.uid,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        email: data.email,
-        phoneNumber: data.phoneNumber || '',
-        staffId: data.staffId || `STAFF_${Date.now()}`,
-        qualification: '',
-        specialization: '',
-        dateOfJoining: new Date(),
-        employmentType: 'full-time',
-        teacherType: data.teacherType,
-        isClassTeacher,
-        isSubjectTeacher,
-        subjects: data.requestedSubjects || [],
-        classes: [],
-        isActive: false,
-        isPending: true
-      };
-
-      // Only add assignedClass if it exists
-      if (data.requestedClass) {
-        teacherData.assignedClass = {
-          classId: data.requestedClass.classId,
-          className: data.requestedClass.className,
-          assignedDate: new Date()
-        };
+      if (!firebaseUser) {
+        resolve(null);
+        return;
       }
 
-      await createTeacher(teacherData);
-      
-      console.log('✅ Teacher record created');
-      
-      // Create pending approval request
-      await createPendingApproval({
-        userId: firebaseUser.uid,
-        teacherId: firebaseUser.uid,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        email: data.email,
-        phoneNumber: data.phoneNumber,
-        teacherType: data.teacherType,
-        requestedClass: data.requestedClass,
-        requestedSubjects: data.requestedSubjects,
-        status: 'pending',
-        submittedAt: new Date()
-      });
-      
-      console.log('✅ Pending approval request created');
-    }
-    
-    // PARENT REGISTRATION: Create parent and children records
-    if (data.role === 'parent' && data.children && data.children.length > 0) {
-      console.log('👨‍👩‍👧 Creating parent record with children...');
-      
-      // Create parent record
-      const parentData: any = {
-        id: firebaseUser.uid,
-        parentId: firebaseUser.uid,
-        userId: firebaseUser.uid,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        email: data.email,
-        phoneNumber: data.phoneNumber || '',
-        relationship: data.relationship || 'guardian',
-        occupation: data.occupation,
-        workplace: data.workplace,
-        address: data.address,
-        children: [], // Will be populated as we create students
-        isActive: true
-      };
-
-      await createParent(parentData);
-      console.log('✅ Parent record created');
-
-      // Create student records for each child
-      const createdStudentIds: string[] = [];
-      
-      for (const child of data.children) {
-        console.log(`👶 Creating student record for: ${child.firstName} ${child.lastName}`);
+      try {
+        // Get user data from Firestore
+        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
         
-        const studentData: any = {
-          firstName: child.firstName,
-          lastName: child.lastName,
-          gender: child.gender,
-          dateOfBirth: child.dateOfBirth,
-          age: child.age,
-          classId: child.classId,
-          className: child.className,
-          parentId: firebaseUser.uid,
-          guardianId: firebaseUser.uid,
-          address: data.address || '',
-          city: '',
-          state: '',
-          emergencyContact: `${data.firstName} ${data.lastName}`,
-          emergencyPhone: data.phoneNumber || '',
-          isActive: true
+        if (!userDoc.exists()) {
+          resolve(null);
+          return;
+        }
+
+        const userData = userDoc.data();
+        
+        // Return AuthUser object
+        const authUser: AuthUser = {
+          id: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          firstName: userData.firstName || '',
+          lastName: userData.lastName || '',
+          phoneNumber: userData.phoneNumber || '',
+          role: userData.role,
+          studentId: userData.studentId,
+          teacherId: userData.teacherId,
+          parentId: userData.parentId,
+          adminId: userData.adminId,
         };
 
-        const createdStudent = await createStudent(studentData);
-        createdStudentIds.push(createdStudent.studentId);
-        
-        console.log(`✅ Student created: ${createdStudent.studentId} (${createdStudent.admissionNumber})`);
+        resolve(authUser);
+      } catch (error) {
+        console.error('Error getting user data:', error);
+        resolve(null);
       }
-
-      // Update parent with all children IDs
-      const parentRef = doc(db, 'parents', firebaseUser.uid);
-      await updateDoc(parentRef, {
-        children: createdStudentIds,
-        updatedAt: new Date()
-      });
-
-      console.log('✅ Parent updated with children IDs:', createdStudentIds);
-    }
-    
-    // Log the registration
-    await createAuditLog({
-      userId: firebaseUser.uid,
-      userName: `${data.firstName} ${data.lastName}`,
-      action: 'USER_REGISTERED',
-      details: needsApproval 
-        ? `New ${data.role} account created - Pending admin approval`
-        : data.role === 'parent' && data.children
-        ? `New parent account created with ${data.children.length} children`
-        : `New ${data.role} account created`,
-      timestamp: new Date(),
-      success: true
     });
-    
-    console.log('✅ Registration complete');
-    
-    return firestoreData as AuthUser;
-  } catch (error: any) {
-    console.error('❌ Registration error:', error);
-    throw new Error(error.message || 'Failed to register user');
-  }
+  });
 }
 
 /**
- * Login user with email and password (Enhanced with Pending Check)
+ * Login user with email and password
  */
-export async function loginUser(credentials: LoginCredentials): Promise<AuthUser> {
-  try {
-    const userCredential = await signInWithEmailAndPassword(
-      auth,
-      credentials.email,
-      credentials.password
-    );
-    
-    const firebaseUser = userCredential.user;
-    
-    // Get user data from Firestore
-    const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-    
-    if (!userDoc.exists()) {
-      throw new Error('User data not found');
-    }
-    
-    const userData = userDoc.data() as AuthUser;
-    
-    // Check if user is pending approval (teachers only)
-    if (userData.isPending && !userData.isActive) {
-      await firebaseSignOut(auth);
-      throw new Error('Your account is pending admin approval. You will receive an email notification once approved.');
-    }
-    
-    // Check if user is active
-    if (!userData.isActive) {
-      await firebaseSignOut(auth);
-      throw new Error('Account is deactivated. Contact admin.');
-    }
-    
-    // Check if user was rejected
-    if (userData.rejectedBy) {
-      await firebaseSignOut(auth);
-      const reason = userData.rejectionReason || 'No reason provided';
-      throw new Error(`Your registration was rejected. Reason: ${reason}`);
-    }
-    
-    // Update last login
-    await updateDoc(doc(db, 'users', firebaseUser.uid), {
-      lastLogin: Timestamp.now()
-    });
-    
-    // Log the login
-    await createAuditLog({
-      userId: firebaseUser.uid,
-      userName: `${userData.firstName} ${userData.lastName}`,
-      action: 'USER_LOGIN',
-      details: `${userData.role} logged in`,
-      timestamp: new Date(),
-      success: true
-    });
-    
-    return {
-      ...userData,
-      lastLogin: new Date()
-    };
-  } catch (error: any) {
-    console.error('Login error:', error);
-    
-    // Log failed login attempt
-    await createAuditLog({
-      userId: 'unknown',
-      userName: credentials.email,
-      action: 'LOGIN_FAILED',
-      details: error.message,
-      timestamp: new Date(),
-      success: false
-    });
-    
-    throw new Error(error.message || 'Failed to login');
+export async function loginUser(email: string, password: string): Promise<AuthUser> {
+  const userCredential = await signInWithEmailAndPassword(auth, email, password);
+  const firebaseUser = userCredential.user;
+  
+  // Get user data from Firestore
+  const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+  
+  if (!userDoc.exists()) {
+    throw new Error('User data not found');
   }
+
+  const userData = userDoc.data();
+  
+  return {
+    id: firebaseUser.uid,
+    email: firebaseUser.email || '',
+    firstName: userData.firstName || '',
+    lastName: userData.lastName || '',
+    phoneNumber: userData.phoneNumber || '',
+    role: userData.role,
+    studentId: userData.studentId,
+    teacherId: userData.teacherId,
+    parentId: userData.parentId,
+    adminId: userData.adminId,
+  };
 }
 
 /**
  * Logout current user
  */
 export async function logoutUser(): Promise<void> {
+  await signOut(auth);
+}
+
+/**
+ * Register a new user
+ */
+export async function registerUser(data: RegisterData): Promise<FirebaseUser> {
   try {
-    const user = auth.currentUser;
-    
-    if (user) {
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      const userData = userDoc.data();
+    console.log('🔐 Starting registration for:', data.email, 'Role:', data.role);
+
+    // Create Firebase Auth user
+    const userCredential = await createUserWithEmailAndPassword(
+      auth,
+      data.email,
+      data.password
+    );
+    const user = userCredential.user;
+    console.log('✅ Firebase Auth user created:', user.uid);
+
+    // Create base user record in 'users' collection
+    const baseUserData = {
+      email: data.email,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      phoneNumber: data.phoneNumber,
+      role: data.role,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    try {
+      // Handle role-specific registration
+      switch (data.role) {
+        case 'student':
+          await handleStudentRegistration(user.uid, data, baseUserData);
+          break;
+
+        case 'teacher':
+          await handleTeacherRegistration(user.uid, data, baseUserData);
+          break;
+
+        case 'parent':
+          await handleParentRegistration(user.uid, data, baseUserData);
+          break;
+
+        case 'admin':
+          await handleAdminRegistration(user.uid, data, baseUserData);
+          break;
+
+        default:
+          throw new Error('Invalid role');
+      }
+
+      console.log('✅ Registration complete for:', data.email);
       
-      await createAuditLog({
-        userId: user.uid,
-        userName: userData ? `${userData.firstName} ${userData.lastName}` : 'Unknown',
-        action: 'USER_LOGOUT',
-        details: `${userData?.role || 'User'} logged out`,
-        timestamp: new Date(),
-        success: true
-      });
+      // Sign out the user after registration (they'll need to login after approval)
+      if (data.role === 'teacher' || data.role === 'parent') {
+        await signOut(auth);
+        console.log('✅ User signed out (awaiting approval)');
+      }
+      
+      return user;
+
+    } catch (error) {
+      // If role-specific creation fails, delete the Auth user
+      console.error('❌ Role-specific registration failed, cleaning up Auth user...');
+      await user.delete();
+      throw error;
     }
-    
-    await firebaseSignOut(auth);
+
   } catch (error: any) {
-    console.error('Logout error:', error);
-    throw new Error('Failed to logout');
-  }
-}
-
-/**
- * Get current authenticated user
- */
-export async function getCurrentUser(): Promise<AuthUser | null> {
-  try {
-    const firebaseUser = auth.currentUser;
+    console.error('❌ Registration error:', error);
     
-    if (!firebaseUser) {
-      return null;
+    // Handle Firebase Auth errors
+    if (error.code === 'auth/email-already-in-use') {
+      throw new Error('This email is already registered. Please login instead.');
+    } else if (error.code === 'auth/weak-password') {
+      throw new Error('Password is too weak. Please use a stronger password.');
+    } else if (error.code === 'auth/invalid-email') {
+      throw new Error('Invalid email address.');
     }
     
-    const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-    
-    if (!userDoc.exists()) {
-      return null;
-    }
-    
-    return userDoc.data() as AuthUser;
-  } catch (error) {
-    console.error('Get current user error:', error);
-    return null;
+    throw new Error(error.message || 'Registration failed');
   }
 }
 
 /**
- * Create audit log entry
+ * Handle student registration
  */
-export async function createAuditLog(log: Omit<AuditLog, 'id'>): Promise<string> {
-  try {
-    const docRef = await addDoc(collection(db, 'auditLogs'), {
-      ...log,
-      timestamp: Timestamp.now()
-    });
-    return docRef.id;
-  } catch (error) {
-    console.error('Create audit log error:', error);
-    // Don't throw error - logging should not break the main flow
-    return '';
-  }
-}
-
-/**
- * Update user profile
- */
-export async function updateUserProfile(
-  userId: string,
-  updates: Partial<AuthUser>
+async function handleStudentRegistration(
+  userId: string, 
+  data: RegisterData,
+  baseUserData: any
 ): Promise<void> {
-  try {
-    await updateDoc(doc(db, 'users', userId), {
-      ...updates,
-      updatedAt: Timestamp.now()
-    });
-  } catch (error) {
-    console.error('Update profile error:', error);
-    throw new Error('Failed to update profile');
+  console.log('📚 Creating student record...');
+  
+  // Students should be registered by parents or admin, not self-registration
+  throw new Error('Student self-registration is not allowed. Students should be registered by their parents or school admin.');
+}
+
+/**
+ * Handle teacher registration (requires admin approval)
+ */
+async function handleTeacherRegistration(
+  userId: string, 
+  data: RegisterData,
+  baseUserData: any
+): Promise<void> {
+  console.log('👨‍🏫 Creating teacher approval request...');
+
+  if (!data.teacherType) {
+    throw new Error('Teacher type is required');
   }
+
+  // Validate required fields based on teacher type
+  if ((data.teacherType === 'class_teacher' || data.teacherType === 'both') && !data.requestedClass) {
+    throw new Error('Class selection is required for class teachers');
+  }
+
+  if ((data.teacherType === 'subject_teacher' || data.teacherType === 'both') && 
+      (!data.requestedSubjects || data.requestedSubjects.length === 0)) {
+    throw new Error('Subject selection is required for subject teachers');
+  }
+
+  // Create base user record (pending approval)
+  await setDoc(doc(db, 'users', userId), {
+    ...baseUserData,
+    teacherId: null, // Will be set after approval
+    isApproved: false,
+    approvalStatus: 'pending'
+  });
+
+  // ✅ FIX: Build approval data object, only including defined fields
+  const approvalData: any = {
+    userId,
+    email: data.email,
+    firstName: data.firstName,
+    lastName: data.lastName,
+    phoneNumber: data.phoneNumber,
+    teacherType: data.teacherType,
+  };
+
+  // Only add requestedClass if it exists (for class teachers)
+  if (data.requestedClass) {
+    approvalData.requestedClass = data.requestedClass;
+  }
+
+  // Only add requestedSubjects if it exists (for subject teachers)
+  if (data.requestedSubjects && data.requestedSubjects.length > 0) {
+    approvalData.requestedSubjects = data.requestedSubjects;
+  }
+
+  // Submit teacher for approval
+  await submitTeacherForApproval(approvalData);
+
+  console.log('✅ Teacher submitted for approval');
+}
+
+/**
+ * Handle parent registration (requires admin approval)
+ */
+async function handleParentRegistration(
+  userId: string, 
+  data: RegisterData,
+  baseUserData: any
+): Promise<void> {
+  console.log('👨‍👩‍👧 Creating parent approval request...');
+
+  if (!data.children || data.children.length === 0) {
+    throw new Error('At least one child is required for parent registration');
+  }
+
+  if (!data.address) {
+    throw new Error('Home address is required for parent registration');
+  }
+
+  // Validate all children have required subject data
+  for (const child of data.children) {
+    if (!child.subjects || child.subjects.length === 0) {
+      throw new Error(`Subject selection is required for ${child.firstName} ${child.lastName}`);
+    }
+  }
+
+  // Create base user record (pending approval)
+  await setDoc(doc(db, 'users', userId), {
+    ...baseUserData,
+    parentId: null, // Will be set after approval
+    isApproved: false,
+    approvalStatus: 'pending'
+  });
+
+  // Submit parent for approval with children data
+  await submitParentForApproval({
+    userId,
+    email: data.email,
+    firstName: data.firstName,
+    lastName: data.lastName,
+    phoneNumber: data.phoneNumber,
+    relationship: data.relationship || 'parent',
+    occupation: data.occupation,
+    workplace: data.workplace,
+    address: data.address,
+    children: data.children
+  });
+
+  console.log('✅ Parent submitted for approval with', data.children.length, 'children');
+}
+
+/**
+ * Handle admin registration (immediate activation)
+ */
+async function handleAdminRegistration(
+  userId: string, 
+  data: RegisterData,
+  baseUserData: any
+): Promise<void> {
+  console.log('👑 Creating admin record...');
+
+  if (!data.adminDepartment) {
+    throw new Error('Admin department is required');
+  }
+
+  // Create admin record immediately (no approval needed)
+  const adminId = `admin_${Date.now()}`;
+  
+  await createAdmin({
+    userId,
+    adminId,
+    email: data.email,
+    firstName: data.firstName,
+    lastName: data.lastName,
+    phoneNumber: data.phoneNumber,
+    department: data.adminDepartment,
+    departmentName: getDepartmentName(data.adminDepartment),
+    isActive: true,
+    isSuperAdmin: data.adminDepartment === 'ceo',
+    permissions: getDefaultPermissions(data.adminDepartment),
+    profileImageUrl: null,
+    lastLogin: null,
+    metadata: {}
+  });
+
+  // Create base user record with adminId
+  await setDoc(doc(db, 'users', userId), {
+    ...baseUserData,
+    adminId,
+    isApproved: true,
+    approvalStatus: 'approved'
+  });
+
+  console.log('✅ Admin created:', adminId);
+}
+
+/**
+ * Get department display name
+ */
+function getDepartmentName(department: string): string {
+  const names: Record<string, string> = {
+    'ceo': 'Chief Executive Officer',
+    'principal': 'Principal',
+    'vice_principal': 'Vice Principal',
+    'hod': 'Head of Department',
+    'admin_staff': 'Administrative Staff'
+  };
+  return names[department] || department;
+}
+
+/**
+ * Get default permissions based on department
+ */
+function getDefaultPermissions(department: string): any[] {
+  // CEO and Principal get all permissions
+  if (department === 'ceo' || department === 'principal') {
+    return [
+      { module: 'all', actions: ['create', 'read', 'update', 'delete'] }
+    ];
+  }
+
+  // Vice Principal gets most permissions
+  if (department === 'vice_principal') {
+    return [
+      { module: 'students', actions: ['create', 'read', 'update', 'delete'] },
+      { module: 'teachers', actions: ['read', 'update'] },
+      { module: 'classes', actions: ['read', 'update'] },
+      { module: 'attendance', actions: ['read', 'update'] },
+      { module: 'grades', actions: ['read', 'update'] }
+    ];
+  }
+
+  // HOD gets department-specific permissions
+  if (department === 'hod') {
+    return [
+      { module: 'students', actions: ['read', 'update'] },
+      { module: 'teachers', actions: ['read'] },
+      { module: 'classes', actions: ['read', 'update'] },
+      { module: 'attendance', actions: ['read', 'update'] },
+      { module: 'grades', actions: ['read', 'update'] }
+    ];
+  }
+
+  // Admin staff gets limited permissions
+  return [
+    { module: 'students', actions: ['read'] },
+    { module: 'teachers', actions: ['read'] },
+    { module: 'classes', actions: ['read'] },
+    { module: 'attendance', actions: ['read'] }
+  ];
 }

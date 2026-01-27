@@ -1,282 +1,218 @@
-// lib/firebase/dataLocking.ts - Data Locking & Edit Windows Service
-
+// lib/firebase/dataLocking.ts - CLIENT SDK VERSION
 import { 
-  collection, 
-  doc,
-  getDoc,
-  setDoc,
+  doc, 
+  getDoc, 
+  setDoc, 
   updateDoc,
-  query, 
-  where, 
-  getDocs,
-  Timestamp 
+  Timestamp,
+  serverTimestamp
 } from 'firebase/firestore';
 import { db } from './config';
-import { DataLock, EditWindow } from '@/types/database';
 
 /**
- * Check if a data record is locked
+ * Data lock configuration
  */
-export async function isDataLocked(
-  entityType: 'attendance' | 'result' | 'merit' | 'fee',
+export interface DataLock {
+  id?: string;
+  entityType: 'attendance' | 'grade' | 'merit' | 'fee';
+  entityId: string;
+  lockedAt: Date | any;
+  lockedBy: string;
+  lockedByName: string;
+  reason: string;
+  expiresAt?: Date | any;
+  isLocked: boolean;
+}
+
+/**
+ * Edit window configuration (in days)
+ */
+const EDIT_WINDOWS = {
+  attendance: 7,  // 7 days to edit attendance
+  grade: 7,       // 7 days to edit grades
+  merit: 30,      // 30 days to edit merits
+  fee: 90         // 90 days to edit fee records
+};
+
+/**
+ * Check if a record is within the edit window
+ */
+export function isWithinEditWindow(
+  recordDate: Date,
+  entityType: 'attendance' | 'grade' | 'merit' | 'fee'
+): boolean {
+  const now = new Date();
+  const recordTime = recordDate instanceof Date ? recordDate : new Date(recordDate);
+  const daysSinceRecord = Math.floor((now.getTime() - recordTime.getTime()) / (1000 * 60 * 60 * 24));
+  
+  const windowDays = EDIT_WINDOWS[entityType];
+  return daysSinceRecord <= windowDays;
+}
+
+/**
+ * Get remaining days in edit window
+ */
+export function getRemainingEditDays(
+  recordDate: Date,
+  entityType: 'attendance' | 'grade' | 'merit' | 'fee'
+): number {
+  const now = new Date();
+  const recordTime = recordDate instanceof Date ? recordDate : new Date(recordDate);
+  const daysSinceRecord = Math.floor((now.getTime() - recordTime.getTime()) / (1000 * 60 * 60 * 24));
+  
+  const windowDays = EDIT_WINDOWS[entityType];
+  const remaining = windowDays - daysSinceRecord;
+  
+  return Math.max(0, remaining);
+}
+
+/**
+ * Check if a record is locked
+ */
+export async function isRecordLocked(
+  entityType: 'attendance' | 'grade' | 'merit' | 'fee',
   entityId: string
-): Promise<{ isLocked: boolean; reason?: string; lockedBy?: string }> {
+): Promise<boolean> {
   try {
-    const lockId = `${entityType}_${entityId}`;
-    const lockDoc = await getDoc(doc(db, 'dataLocks', lockId));
+    const lockRef = doc(db, 'dataLocks', `${entityType}_${entityId}`);
+    const lockSnap = await getDoc(lockRef);
     
-    if (!lockDoc.exists()) {
-      return { isLocked: false };
+    if (!lockSnap.exists()) {
+      return false;
     }
     
-    const lockData = lockDoc.data() as DataLock;
+    const lockData = lockSnap.data() as DataLock;
     
-    if (lockData.isLocked) {
-      return {
-        isLocked: true,
-        reason: lockData.lockReason,
-        lockedBy: lockData.lockedBy
-      };
-    }
-    
-    // Check if past edit deadline
-    if (lockData.editDeadline) {
-      const now = new Date();
-      const deadline = lockData.editDeadline instanceof Timestamp 
-        ? lockData.editDeadline.toDate() 
-        : new Date(lockData.editDeadline);
+    // Check if lock has expired
+    if (lockData.expiresAt) {
+      const expiresAt = lockData.expiresAt instanceof Timestamp 
+        ? lockData.expiresAt.toDate() 
+        : new Date(lockData.expiresAt);
       
-      if (now > deadline) {
-        // Auto-lock if past deadline
-        await lockData_Internal(entityType, entityId, 'Edit deadline passed', 'system');
-        return {
-          isLocked: true,
-          reason: 'Edit deadline has passed',
-          lockedBy: 'system'
-        };
+      if (expiresAt < new Date()) {
+        // Lock expired, remove it
+        await updateDoc(lockRef, { isLocked: false });
+        return false;
       }
     }
     
-    return { isLocked: false };
+    return lockData.isLocked || false;
   } catch (error) {
-    console.error('Error checking data lock:', error);
-    return { isLocked: false };
+    console.error('Error checking record lock:', error);
+    return false; // If can't check, assume not locked
   }
 }
 
 /**
- * Lock a data record
+ * Lock a record
  */
-async function lockData_Internal(
-  entityType: 'attendance' | 'result' | 'merit' | 'fee',
+export async function lockRecord(
+  entityType: 'attendance' | 'grade' | 'merit' | 'fee',
   entityId: string,
+  lockedBy: string,
+  lockedByName: string,
   reason: string,
-  lockedBy: string
+  durationHours?: number
 ): Promise<void> {
   try {
-    const lockId = `${entityType}_${entityId}`;
+    const lockRef = doc(db, 'dataLocks', `${entityType}_${entityId}`);
     
-    await setDoc(doc(db, 'dataLocks', lockId), {
+    const lockData: Partial<DataLock> = {
       entityType,
       entityId,
-      isLocked: true,
-      lockReason: reason,
       lockedBy,
-      lockedAt: Timestamp.now()
-    }, { merge: true });
+      lockedByName,
+      reason,
+      isLocked: true,
+      lockedAt: serverTimestamp()
+    };
     
-    console.log(`✅ Data locked: ${entityType}/${entityId}`);
+    if (durationHours) {
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + durationHours);
+      lockData.expiresAt = Timestamp.fromDate(expiresAt);
+    }
+    
+    await setDoc(lockRef, lockData);
   } catch (error) {
-    console.error('Error locking data:', error);
+    console.error('Error locking record:', error);
     throw error;
   }
 }
 
-export const lockData = lockData_Internal;
-
 /**
- * Unlock a data record
+ * Unlock a record
  */
-export async function unlockData(
-  entityType: 'attendance' | 'result' | 'merit' | 'fee',
-  entityId: string,
-  unlockedBy: string
+export async function unlockRecord(
+  entityType: 'attendance' | 'grade' | 'merit' | 'fee',
+  entityId: string
 ): Promise<void> {
   try {
-    const lockId = `${entityType}_${entityId}`;
-    const lockDoc = await getDoc(doc(db, 'dataLocks', lockId));
-    
-    if (!lockDoc.exists()) {
-      console.warn('No lock found for:', lockId);
-      return;
-    }
-    
-    const lockData = lockDoc.data() as DataLock;
-    
-    // Check if user is authorized to unlock
-    if (lockData.canBeUnlockedBy && lockData.canBeUnlockedBy.length > 0) {
-      if (!lockData.canBeUnlockedBy.includes(unlockedBy)) {
-        throw new Error('You are not authorized to unlock this data');
-      }
-    }
-    
-    await updateDoc(doc(db, 'dataLocks', lockId), {
+    const lockRef = doc(db, 'dataLocks', `${entityType}_${entityId}`);
+    await updateDoc(lockRef, {
       isLocked: false,
-      lockReason: null,
-      lockedBy: null,
-      lockedAt: null
+      unlockedAt: serverTimestamp()
     });
-    
-    console.log(`✅ Data unlocked: ${entityType}/${entityId} by ${unlockedBy}`);
   } catch (error) {
-    console.error('Error unlocking data:', error);
+    console.error('Error unlocking record:', error);
     throw error;
   }
 }
 
 /**
- * Set edit deadline for data (auto-locks after deadline)
+ * Get lock information
  */
-export async function setEditDeadline(
-  entityType: 'attendance' | 'result' | 'merit' | 'fee',
+export async function getLockInfo(
+  entityType: 'attendance' | 'grade' | 'merit' | 'fee',
+  entityId: string
+): Promise<DataLock | null> {
+  try {
+    const lockRef = doc(db, 'dataLocks', `${entityType}_${entityId}`);
+    const lockSnap = await getDoc(lockRef);
+    
+    if (!lockSnap.exists()) {
+      return null;
+    }
+    
+    return { id: lockSnap.id, ...lockSnap.data() } as DataLock;
+  } catch (error) {
+    console.error('Error getting lock info:', error);
+    return null;
+  }
+}
+
+/**
+ * Validate if user can edit a record
+ */
+export async function canEditRecord(
+  recordDate: Date,
+  entityType: 'attendance' | 'grade' | 'merit' | 'fee',
   entityId: string,
-  deadline: Date,
-  term: string,
-  session: string
-): Promise<void> {
-  try {
-    const lockId = `${entityType}_${entityId}`;
-    
-    await setDoc(doc(db, 'dataLocks', lockId), {
-      entityType,
-      entityId,
-      term,
-      session,
-      editDeadline: Timestamp.fromDate(deadline),
-      isLocked: false
-    }, { merge: true });
-    
-    console.log(`✅ Edit deadline set: ${entityType}/${entityId} until ${deadline}`);
-  } catch (error) {
-    console.error('Error setting edit deadline:', error);
-    throw error;
+  userId: string
+): Promise<{
+  canEdit: boolean;
+  reason?: string;
+}> {
+  // Check edit window
+  if (!isWithinEditWindow(recordDate, entityType)) {
+    const windowDays = EDIT_WINDOWS[entityType];
+    return {
+      canEdit: false,
+      reason: `Edit window expired. Records can only be edited within ${windowDays} days.`
+    };
   }
-}
-
-/**
- * Create an edit window for a specific assessment
- */
-export async function createEditWindow(
-  window: Omit<EditWindow, 'id'>
-): Promise<string> {
-  try {
-    const windowId = `${window.term}_${window.session}_${window.assessmentType}`.replace(/\//g, '_');
-    
-    await setDoc(doc(db, 'editWindows', windowId), {
-      ...window,
-      startDate: Timestamp.fromDate(window.startDate),
-      endDate: Timestamp.fromDate(window.endDate)
-    });
-    
-    console.log(`✅ Edit window created: ${windowId}`);
-    return windowId;
-  } catch (error) {
-    console.error('Error creating edit window:', error);
-    throw error;
-  }
-}
-
-/**
- * Check if current time is within edit window
- */
-export async function isWithinEditWindow(
-  term: string,
-  session: string,
-  assessmentType: 'ca1' | 'ca2' | 'exam' | 'attendance' | 'merit',
-  classId?: string
-): Promise<{ allowed: boolean; window?: EditWindow; reason?: string }> {
-  try {
-    const windowId = `${term}_${session}_${assessmentType}`.replace(/\//g, '_');
-    const windowDoc = await getDoc(doc(db, 'editWindows', windowId));
-    
-    if (!windowDoc.exists()) {
-      // No edit window defined = always allowed
-      return { allowed: true };
-    }
-    
-    const windowData = windowDoc.data() as EditWindow;
-    
-    if (!windowData.isActive) {
+  
+  // Check if locked
+  const isLocked = await isRecordLocked(entityType, entityId);
+  if (isLocked) {
+    const lockInfo = await getLockInfo(entityType, entityId);
+    if (lockInfo && lockInfo.lockedBy !== userId) {
       return {
-        allowed: false,
-        window: windowData,
-        reason: 'Edit window is not active'
+        canEdit: false,
+        reason: `Record is locked by ${lockInfo.lockedByName}. Reason: ${lockInfo.reason}`
       };
     }
-    
-    // Check if class is affected (empty array = all classes)
-    if (classId && windowData.affectedClasses && windowData.affectedClasses.length > 0) {
-      if (!windowData.affectedClasses.includes(classId)) {
-        // This class is not affected by this window
-        return { allowed: true };
-      }
-    }
-    
-    // Check dates
-    const now = new Date();
-    const start = windowData.startDate instanceof Timestamp 
-      ? windowData.startDate.toDate() 
-      : new Date(windowData.startDate);
-    const end = windowData.endDate instanceof Timestamp 
-      ? windowData.endDate.toDate() 
-      : new Date(windowData.endDate);
-    
-    if (now < start) {
-      return {
-        allowed: false,
-        window: windowData,
-        reason: `Edit window opens on ${start.toLocaleDateString()}`
-      };
-    }
-    
-    if (now > end) {
-      return {
-        allowed: false,
-        window: windowData,
-        reason: `Edit window closed on ${end.toLocaleDateString()}`
-      };
-    }
-    
-    return { allowed: true, window: windowData };
-  } catch (error) {
-    console.error('Error checking edit window:', error);
-    // On error, allow the operation (fail open)
-    return { allowed: true };
   }
-}
-
-/**
- * Get all active edit windows
- */
-export async function getActiveEditWindows(
-  term: string,
-  session: string
-): Promise<EditWindow[]> {
-  try {
-    const q = query(
-      collection(db, 'editWindows'),
-      where('term', '==', term),
-      where('session', '==', session),
-      where('isActive', '==', true)
-    );
-    
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as EditWindow));
-  } catch (error) {
-    console.error('Error getting active edit windows:', error);
-    return [];
-  }
+  
+  return { canEdit: true };
 }

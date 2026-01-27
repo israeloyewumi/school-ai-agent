@@ -1,4 +1,4 @@
-// app/register/page.tsx - UPDATED: Added parent approval system
+// app/register/page.tsx - ULTRA SAFE VERSION - ALL .length calls protected
 "use client";
 
 import { useState } from 'react';
@@ -23,7 +23,6 @@ type RegistrationStep =
   | 'review' 
   | 'success';
 
-// Define Child interface to match ParentChildrenForm
 interface Child {
   firstName: string;
   lastName: string;
@@ -33,7 +32,6 @@ interface Child {
   classId: string;
   className: string;
   grade: number;
-  // Subject selection fields
   subjects?: string[];
   academicTrack?: AcademicTrack;
   tradeSubject?: string;
@@ -47,7 +45,6 @@ export default function RegisterPage() {
   const [success, setSuccess] = useState('');
   const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
 
-  // Basic registration data
   const [formData, setFormData] = useState<RegisterData>({
     email: '',
     password: '',
@@ -58,10 +55,7 @@ export default function RegisterPage() {
     role: 'student'
   });
 
-  // Admin-specific data
   const [adminDepartment, setAdminDepartment] = useState<AdminDepartment | null>(null);
-
-  // Teacher-specific data
   const [teacherType, setTeacherType] = useState<TeacherType | null>(null);
   const [selectedClass, setSelectedClass] = useState<{ classId: string; className: string } | null>(null);
   const [selectedSubjects, setSelectedSubjects] = useState<{
@@ -70,7 +64,6 @@ export default function RegisterPage() {
     classes: string[];
   }[]>([]);
 
-  // Parent-specific data
   const [parentRelationship, setParentRelationship] = useState<'father' | 'mother' | 'guardian' | 'other'>('father');
   const [parentOccupation, setParentOccupation] = useState('');
   const [parentWorkplace, setParentWorkplace] = useState('');
@@ -86,7 +79,6 @@ export default function RegisterPage() {
     e.preventDefault();
     setError('');
 
-    // Validation
     if (!formData.firstName.trim()) {
       setError('First name is required');
       return;
@@ -112,7 +104,6 @@ export default function RegisterPage() {
       return;
     }
 
-    // Route based on role
     if (formData.role === 'admin') {
       setStep('admin-department');
     } else if (formData.role === 'teacher') {
@@ -120,7 +111,6 @@ export default function RegisterPage() {
     } else if (formData.role === 'parent') {
       setStep('parent-details');
     } else {
-      // For student role, submit directly
       handleSubmit();
     }
   }
@@ -141,7 +131,7 @@ export default function RegisterPage() {
   }
 
   function handleSubjectsSelected(subjects: typeof selectedSubjects) {
-    setSelectedSubjects(subjects);
+    setSelectedSubjects(subjects || []);
     setValidationWarnings([]);
   }
 
@@ -151,7 +141,6 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      // Validate teacher details
       if (teacherType === 'class_teacher' || teacherType === 'both') {
         if (!selectedClass) {
           setError('Please select a class');
@@ -161,14 +150,18 @@ export default function RegisterPage() {
       }
 
       if (teacherType === 'subject_teacher' || teacherType === 'both') {
-        if (selectedSubjects.length === 0) {
+        const subjectsArray = Array.isArray(selectedSubjects) ? selectedSubjects : [];
+        if (subjectsArray.length === 0) {
           setError('Please select at least one subject');
           setLoading(false);
           return;
         }
         
-        // Check if all subjects have classes assigned
-        const subjectWithoutClasses = selectedSubjects.find(s => s.classes.length === 0);
+        const subjectWithoutClasses = subjectsArray.find(s => {
+          const classesArray = Array.isArray(s?.classes) ? s.classes : [];
+          return classesArray.length === 0;
+        });
+        
         if (subjectWithoutClasses) {
           setError(`Please assign classes for ${subjectWithoutClasses.subjectName}`);
           setLoading(false);
@@ -176,17 +169,18 @@ export default function RegisterPage() {
         }
       }
 
-      // CRITICAL: Validate for duplicate assignments before proceeding
       console.log('🔍 Validating teacher assignment availability...');
+      const subjectsArray = Array.isArray(selectedSubjects) ? selectedSubjects : [];
+      
       const validation = await validateTeacherRegistration({
         teacherType: teacherType!,
         requestedClass: selectedClass || undefined,
-        requestedSubjects: selectedSubjects.length > 0 ? selectedSubjects : undefined
+        requestedSubjects: subjectsArray.length > 0 ? subjectsArray : undefined
       });
 
       if (!validation.isValid) {
         setError('Cannot proceed with registration:');
-        setValidationWarnings(validation.errors);
+        setValidationWarnings(validation.errors || []);
         setLoading(false);
         return;
       }
@@ -215,15 +209,17 @@ export default function RegisterPage() {
   function handleParentChildrenComplete() {
     setError('');
 
-    if (parentChildren.length === 0) {
+    const childrenArray = Array.isArray(parentChildren) ? parentChildren : [];
+    
+    if (childrenArray.length === 0) {
       setError('Please add at least one child');
       return;
     }
 
-    // Validate that all children have subjects selected
-    const childrenWithoutSubjects = parentChildren.filter(
-      child => !child.subjects || child.subjects.length === 0
-    );
+    const childrenWithoutSubjects = childrenArray.filter(child => {
+      const subjectsArray = Array.isArray(child?.subjects) ? child.subjects : [];
+      return subjectsArray.length === 0;
+    });
 
     if (childrenWithoutSubjects.length > 0) {
       setError('Please ensure all children have selected their subjects');
@@ -238,19 +234,20 @@ export default function RegisterPage() {
     setError('');
 
     try {
-      // Build registration data with complete child information including subjects
+      const subjectsArray = Array.isArray(selectedSubjects) ? selectedSubjects : [];
+      const childrenArray = Array.isArray(parentChildren) ? parentChildren : [];
+      
       const registrationData: RegisterData = {
         ...formData,
         adminDepartment: adminDepartment || undefined,
         teacherType: teacherType || undefined,
         requestedClass: selectedClass || undefined,
-        requestedSubjects: selectedSubjects.length > 0 ? selectedSubjects : undefined,
+        requestedSubjects: subjectsArray.length > 0 ? subjectsArray : undefined,
         relationship: parentRelationship,
         occupation: parentOccupation || undefined,
         workplace: parentWorkplace || undefined,
         address: parentAddress || undefined,
-        // Map children data to include subject selection
-        children: parentChildren.length > 0 ? parentChildren.map(child => ({
+        children: childrenArray.length > 0 ? childrenArray.map(child => ({
           firstName: child.firstName,
           lastName: child.lastName,
           gender: child.gender,
@@ -259,25 +256,22 @@ export default function RegisterPage() {
           classId: child.classId,
           className: child.className,
           grade: child.grade,
-          // Include subject selection data
-          subjects: child.subjects || [],
+          subjects: Array.isArray(child.subjects) ? child.subjects : [],
           academicTrack: child.academicTrack || null,
           tradeSubject: child.tradeSubject || null
         })) : undefined
       };
 
-      console.log('📝 Submitting registration with children:', registrationData.children);
+      console.log('🔍 Submitting registration with children:', registrationData.children);
 
       await registerUser(registrationData);
       
-      // CRITICAL FIX: Set success state and move to success step
       setSuccess('Registration successful!');
       setStep('success');
       setLoading(false);
       
     } catch (err: any) {
       console.error('Registration error:', err);
-      // Parse multiple error messages if they exist
       const errorMessage = err.message || 'Registration failed. Please try again.';
       const errorLines = errorMessage.split('\n');
       
@@ -291,7 +285,6 @@ export default function RegisterPage() {
     }
   }
 
-  // Admin department options
   const adminDepartments: { value: AdminDepartment; icon: string; description: string }[] = [
     { value: 'ceo', icon: '👑', description: 'Full system access and control' },
     { value: 'principal', icon: '🎓', description: 'School-wide management authority' },
@@ -300,7 +293,6 @@ export default function RegisterPage() {
     { value: 'admin_staff', icon: '💼', description: 'Administrative support tasks' }
   ];
 
-  // Render step content
   function renderStepContent() {
     switch (step) {
       case 'basic':
@@ -308,7 +300,6 @@ export default function RegisterPage() {
           <form onSubmit={handleBasicInfoSubmit} className="space-y-4">
             <h2 className="text-2xl font-bold text-center mb-6">Create Account</h2>
 
-            {/* Role Selection */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 I am a:
@@ -329,7 +320,7 @@ export default function RegisterPage() {
                       {role === 'student' && '🎓'}
                       {role === 'teacher' && '👨‍🏫'}
                       {role === 'parent' && '👨‍👩‍👧'}
-                      {role === 'admin' && '👔'}
+                      {role === 'admin' && '👑'}
                     </div>
                     <div className="font-medium capitalize">{role}</div>
                   </button>
@@ -337,7 +328,6 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* Name */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -367,7 +357,6 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* Email */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Email Address
@@ -382,7 +371,6 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* Phone */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Phone Number
@@ -397,7 +385,6 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* Password */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Password
@@ -412,7 +399,6 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* Confirm Password */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Confirm Password
@@ -531,7 +517,7 @@ export default function RegisterPage() {
                   <span className="text-red-600 text-xl">⚠️</span>
                   <div className="flex-1">
                     <p className="font-semibold text-red-800 mb-1">{error}</p>
-                    {validationWarnings.length > 0 && (
+                    {(validationWarnings?.length || 0) > 0 && (
                       <ul className="text-sm text-red-700 space-y-1 mt-2">
                         {validationWarnings.map((warning, index) => (
                           <li key={index} className="flex items-start gap-2">
@@ -580,7 +566,6 @@ export default function RegisterPage() {
               Please provide additional information about yourself.
             </p>
 
-            {/* Relationship */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Relationship to Child(ren) *
@@ -603,7 +588,6 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* Occupation */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Occupation (Optional)
@@ -617,7 +601,6 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* Workplace */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Workplace (Optional)
@@ -631,7 +614,6 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* Address */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Home Address *
@@ -691,7 +673,7 @@ export default function RegisterPage() {
 
             <button
               onClick={handleParentChildrenComplete}
-              disabled={parentChildren.length === 0}
+              disabled={(parentChildren?.length || 0) === 0}
               className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-lg transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
               Continue to Review
@@ -700,6 +682,9 @@ export default function RegisterPage() {
         );
 
       case 'review':
+        const subjectsArray = Array.isArray(selectedSubjects) ? selectedSubjects : [];
+        const childrenArray = Array.isArray(parentChildren) ? parentChildren : [];
+        
         return (
           <div className="space-y-6">
             <div className="flex items-center justify-between mb-4">
@@ -720,7 +705,6 @@ export default function RegisterPage() {
               </button>
             </div>
 
-            {/* Personal Information */}
             <div className="bg-white border border-gray-200 rounded-lg p-4">
               <h3 className="font-semibold mb-3">Personal Information</h3>
               <div className="space-y-2 text-sm">
@@ -743,7 +727,6 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* Admin Department */}
             {adminDepartment && (
               <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
                 <h3 className="font-semibold mb-3 text-purple-900">Admin Department</h3>
@@ -763,7 +746,6 @@ export default function RegisterPage() {
               </div>
             )}
 
-            {/* Teacher Assignment */}
             {teacherType && (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <h3 className="font-semibold mb-3 text-blue-900">Teacher Assignment</h3>
@@ -784,15 +766,18 @@ export default function RegisterPage() {
                     </div>
                   )}
 
-                  {selectedSubjects.length > 0 && (
+                  {subjectsArray.length > 0 && (
                     <div>
                       <span className="text-blue-600">Subjects:</span>
                       <ul className="mt-1 ml-4 space-y-1">
-                        {selectedSubjects.map((subject) => (
-                          <li key={subject.subjectId}>
-                            <strong>{subject.subjectName}</strong> - {subject.classes.length} classes
-                          </li>
-                        ))}
+                        {subjectsArray.map((subject) => {
+                          const classesArray = Array.isArray(subject?.classes) ? subject.classes : [];
+                          return (
+                            <li key={subject.subjectId}>
+                              <strong>{subject.subjectName}</strong> - {classesArray.length} classes
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   )}
@@ -800,7 +785,6 @@ export default function RegisterPage() {
               </div>
             )}
 
-            {/* Parent Information - ENHANCED with Subject Details */}
             {formData.role === 'parent' && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                 <h3 className="font-semibold mb-3 text-green-900">Parent & Children Information</h3>
@@ -826,45 +810,47 @@ export default function RegisterPage() {
                     <span className="ml-2 font-medium">{parentAddress}</span>
                   </div>
                   <div className="pt-2 border-t border-green-300">
-                    <span className="text-green-600 font-semibold">Children ({parentChildren.length}):</span>
+                    <span className="text-green-600 font-semibold">Children ({childrenArray.length}):</span>
                     <ul className="mt-2 space-y-2">
-                      {parentChildren.map((child, index) => (
-                        <li key={index} className="bg-white rounded p-3">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span>{child.gender === 'male' ? '👦' : '👧'}</span>
-                            <div className="flex-1">
-                              <p className="font-medium">{child.firstName} {child.lastName}</p>
-                              <p className="text-xs text-gray-600">
-                                {child.className} • Age {child.age} • {child.gender === 'male' ? 'Male' : 'Female'}
-                              </p>
-                            </div>
-                          </div>
-                          {child.subjects && child.subjects.length > 0 && (
-                            <div className="mt-2 text-xs bg-blue-50 rounded p-2">
-                              <p className="font-medium text-blue-900">
-                                📚 {child.subjects.length} subjects selected
-                              </p>
-                              {child.academicTrack && (
-                                <p className="text-blue-700 mt-1">
-                                  Track: {child.academicTrack}
+                      {childrenArray.map((child, index) => {
+                        const childSubjects = Array.isArray(child?.subjects) ? child.subjects : [];
+                        return (
+                          <li key={index} className="bg-white rounded p-3">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span>{child.gender === 'male' ? '👦' : '👧'}</span>
+                              <div className="flex-1">
+                                <p className="font-medium">{child.firstName} {child.lastName}</p>
+                                <p className="text-xs text-gray-600">
+                                  {child.className} • Age {child.age} • {child.gender === 'male' ? 'Male' : 'Female'}
                                 </p>
-                              )}
-                              {child.tradeSubject && (
-                                <p className="text-blue-700">
-                                  Trade: {child.tradeSubject}
-                                </p>
-                              )}
+                              </div>
                             </div>
-                          )}
-                        </li>
-                      ))}
+                            {childSubjects.length > 0 && (
+                              <div className="mt-2 text-xs bg-blue-50 rounded p-2">
+                                <p className="font-medium text-blue-900">
+                                  📚 {childSubjects.length} subjects selected
+                                </p>
+                                {child.academicTrack && (
+                                  <p className="text-blue-700 mt-1">
+                                    Track: {child.academicTrack}
+                                  </p>
+                                )}
+                                {child.tradeSubject && (
+                                  <p className="text-blue-700">
+                                    Trade: {child.tradeSubject}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Important Notice for Teachers */}
             {formData.role === 'teacher' && (
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                 <div className="flex items-start gap-2">
@@ -877,7 +863,6 @@ export default function RegisterPage() {
               </div>
             )}
 
-            {/* Updated Notice for Parents - Now requires approval */}
             {formData.role === 'parent' && (
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                 <div className="flex items-start gap-2">
@@ -890,7 +875,6 @@ export default function RegisterPage() {
               </div>
             )}
 
-            {/* Success Notice for Admins Only */}
             {formData.role === 'admin' && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                 <div className="flex items-start gap-2">
@@ -909,7 +893,7 @@ export default function RegisterPage() {
                   <span className="text-red-600 text-xl">❌</span>
                   <div className="flex-1">
                     <p className="font-semibold text-red-800 mb-1">{error}</p>
-                    {validationWarnings.length > 0 && (
+                    {(validationWarnings?.length || 0) > 0 && (
                       <ul className="text-sm text-red-700 space-y-1 mt-2">
                         {validationWarnings.map((warning, index) => (
                           <li key={index} className="flex items-start gap-2">
@@ -1018,14 +1002,12 @@ export default function RegisterPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-        {/* Header */}
         <div className="text-center mb-8">
           <div className="text-5xl mb-3">🎓</div>
           <h1 className="text-3xl font-bold text-gray-800">School AI Agent</h1>
           <p className="text-gray-600 mt-2">Create your account</p>
         </div>
 
-        {/* Step Indicator */}
         {step !== 'success' && step !== 'basic' && (
           <div className="mb-8">
             <div className="flex items-center justify-center gap-2">
@@ -1081,7 +1063,6 @@ export default function RegisterPage() {
           </div>
         )}
 
-        {/* Content */}
         {renderStepContent()}
       </div>
     </div>

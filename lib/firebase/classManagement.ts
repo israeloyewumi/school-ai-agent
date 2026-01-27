@@ -1,4 +1,4 @@
-// lib/firebase/classManagement.ts - Class CRUD Operations (UPDATED with Student Enrollment)
+// lib/firebase/classManagement.ts - Class CRUD Operations (CLIENT SDK - COMPLETE)
 
 import {
   collection,
@@ -10,7 +10,8 @@ import {
   deleteDoc,
   query,
   where,
-  writeBatch
+  writeBatch,
+  serverTimestamp
 } from 'firebase/firestore';
 import { db } from './config';
 import { Class, ClassTeacher, SubjectTeacherAssignment } from '@/types/database';
@@ -34,13 +35,13 @@ export async function initializeAllClasses(): Promise<void> {
         section: classInfo.section,
         level: classInfo.level,
         subjectTeachers: [],
-        capacity: 40, // Default capacity
+        capacity: 40,
         currentStudentCount: 0,
         totalStudents: 0,
         studentIds: [],
         currentTerm: 'First Term',
-        currentSession: '2024/2025',
-        academicYear: '2024/2025',
+        currentSession: '2025/2026',
+        academicYear: '2025/2026',
         createdAt: new Date(),
         updatedAt: new Date()
       };
@@ -127,25 +128,48 @@ export async function getClassesByGrade(grade: number): Promise<Class[]> {
 }
 
 /**
- * Check if class has a class teacher
+ * ✅ ENHANCED: Check if class has a valid class teacher
  */
 export async function classHasClassTeacher(classId: string): Promise<boolean> {
   try {
     const classDoc = await getClassById(classId);
-    return classDoc?.classTeacher !== undefined;
+    
+    if (!classDoc) {
+      console.log(`❌ Class ${classId} not found`);
+      return false;
+    }
+    
+    const hasValidTeacher = !!(
+      classDoc.classTeacher && 
+      classDoc.classTeacher !== null && 
+      classDoc.classTeacher.teacherId &&
+      typeof classDoc.classTeacher.teacherId === 'string' &&
+      classDoc.classTeacher.teacherId.trim() !== ''
+    );
+
+    console.log(`🔍 Class ${classId} has valid teacher: ${hasValidTeacher}`, classDoc.classTeacher);
+    return hasValidTeacher;
   } catch (error) {
     console.error('❌ Error checking class teacher:', error);
-    throw error;
+    return false;
   }
 }
 
 /**
- * Get available classes (no class teacher assigned)
+ * ✅ ENHANCED: Get available classes (no class teacher assigned)
  */
 export async function getAvailableClasses(): Promise<Class[]> {
   try {
     const allClasses = await getAllClassesFromDB();
-    return allClasses.filter(c => !c.classTeacher);
+    
+    return allClasses.filter(c => {
+      if (!c.classTeacher) return true;
+      if (c.classTeacher === null) return true;
+      if (!c.classTeacher.teacherId) return true;
+      if (typeof c.classTeacher.teacherId !== 'string') return true;
+      if (c.classTeacher.teacherId.trim() === '') return true;
+      return false;
+    });
   } catch (error) {
     console.error('❌ Error fetching available classes:', error);
     throw error;
@@ -153,7 +177,8 @@ export async function getAvailableClasses(): Promise<Class[]> {
 }
 
 /**
- * Assign class teacher to a class
+ * ✅ COMPLETELY REWRITTEN: Assign class teacher to a class
+ * NOW WITH BULLETPROOF AUTO-CLEANUP AND VALIDATION
  */
 export async function assignClassTeacher(
   classId: string,
@@ -163,12 +188,88 @@ export async function assignClassTeacher(
   performerName: string
 ): Promise<void> {
   try {
-    // Check if class already has a teacher
-    const hasTeacher = await classHasClassTeacher(classId);
-    if (hasTeacher) {
-      throw new Error(`Class ${classId} already has a class teacher assigned`);
+    console.log(`\n🔧 Starting class teacher assignment...`);
+    console.log(`   Class: ${classId}`);
+    console.log(`   Teacher: ${teacherName} (${teacherId})`);
+    
+    // Step 1: Get class document
+    const classDoc = await getClassById(classId);
+    if (!classDoc) {
+      throw new Error(`Class ${classId} not found`);
+    }
+    console.log(`✅ Class found: ${classDoc.className}`);
+
+    // Step 2: 🔧 CRITICAL FIX - AUTO-CLEANUP RUNS FIRST, ALWAYS
+    console.log(`\n🧹 Running auto-cleanup on ${classDoc.className}...`);
+    
+    let needsCleanup = false;
+    let cleanupReason = '';
+
+    if (classDoc.classTeacher !== undefined) {
+      console.log(`   Found existing classTeacher data:`, classDoc.classTeacher);
+      
+      if (classDoc.classTeacher === null) {
+        needsCleanup = true;
+        cleanupReason = 'classTeacher is null';
+        console.log(`   ⚠️ ${cleanupReason}`);
+      }
+      else if (!classDoc.classTeacher.teacherId) {
+        needsCleanup = true;
+        cleanupReason = 'classTeacher has no teacherId';
+        console.log(`   ⚠️ ${cleanupReason}`);
+      }
+      else if (typeof classDoc.classTeacher.teacherId === 'string' && 
+               classDoc.classTeacher.teacherId.trim() === '') {
+        needsCleanup = true;
+        cleanupReason = 'classTeacher teacherId is empty';
+        console.log(`   ⚠️ ${cleanupReason}`);
+      }
+      else {
+        console.log(`   🔍 Checking if teacher ${classDoc.classTeacher.teacherId} still exists...`);
+        const { getTeacherById } = await import('./teacherManagement');
+        const teacherExists = await getTeacherById(classDoc.classTeacher.teacherId);
+        
+        if (!teacherExists) {
+          needsCleanup = true;
+          cleanupReason = `teacher ${classDoc.classTeacher.teacherName} no longer exists (orphaned)`;
+          console.log(`   ⚠️ Orphaned: ${cleanupReason}`);
+        } else {
+          console.log(`   ❌ Valid teacher already assigned: ${classDoc.classTeacher.teacherName}`);
+          throw new Error(
+            `Class ${classDoc.className} already has a class teacher assigned: ${classDoc.classTeacher.teacherName}. ` +
+            `Please remove the existing teacher first or choose a different class.`
+          );
+        }
+      }
+    } else {
+      console.log(`   ℹ️ No classTeacher field found (good - class is available)`);
     }
 
+    // Step 3: Execute cleanup if needed
+    if (needsCleanup) {
+      console.log(`\n🧹 CLEANING UP: ${cleanupReason}`);
+      const classRef = doc(db, 'classes', classId);
+      await updateDoc(classRef, {
+        classTeacher: null,
+        classTeacherId: null,
+        updatedAt: new Date()
+      });
+      console.log(`✅ Cleanup complete - removed invalid teacher data`);
+    }
+
+    // Step 4: Double-check after cleanup
+    console.log(`\n🔍 Final validation check...`);
+    const hasTeacherNow = await classHasClassTeacher(classId);
+    if (hasTeacherNow) {
+      console.log(`❌ ERROR: Class still shows as having a teacher after cleanup!`);
+      throw new Error(
+        `Class ${classId} validation failed. Please contact system administrator.`
+      );
+    }
+    console.log(`✅ Validation passed - class is available for assignment`);
+
+    // Step 5: Proceed with new assignment
+    console.log(`\n💾 Assigning ${teacherName} to ${classDoc.className}...`);
     const classTeacher: ClassTeacher = {
       teacherId,
       teacherName,
@@ -182,22 +283,24 @@ export async function assignClassTeacher(
       updatedAt: new Date()
     });
 
-    // Create audit log
+    console.log(`✅ Class teacher successfully assigned!`);
+
+    // Step 6: Create audit log
     await createDetailedAuditLog({
       userId: performedBy,
       userRole: 'admin',
       userName: performerName,
       action: 'CLASS_TEACHER_ASSIGNED',
-      details: `Assigned ${teacherName} as class teacher for ${classId}`,
+      details: `Assigned ${teacherName} as class teacher for ${classDoc.className}`,
       affectedEntity: classId,
       affectedEntityType: 'class',
       afterData: { classTeacher },
       success: true
     });
 
-    console.log('✅ Class teacher assigned:', classId);
-  } catch (error) {
-    console.error('❌ Error assigning class teacher:', error);
+    console.log(`\n✅ COMPLETE: ${teacherName} is now the class teacher for ${classDoc.className}\n`);
+  } catch (error: any) {
+    console.error('\n❌ Error assigning class teacher:', error.message);
     throw error;
   }
 }
@@ -219,6 +322,7 @@ export async function removeClassTeacher(
     }
 
     const classData = classDoc.data() as Class;
+    const teacherName = classData.classTeacher?.teacherName || 'Unknown Teacher';
     
     await updateDoc(classRef, {
       classTeacher: null,
@@ -226,13 +330,12 @@ export async function removeClassTeacher(
       updatedAt: new Date()
     });
 
-    // Create audit log
     await createDetailedAuditLog({
       userId: performedBy,
       userRole: 'admin',
       userName: performerName,
-      action: 'CLASS_TEACHER_ASSIGNED',
-      details: `Removed ${classData.classTeacher?.teacherName} as class teacher from ${classId}`,
+      action: 'CLASS_TEACHER_REMOVED',
+      details: `Removed ${teacherName} as class teacher from ${classData.className}`,
       affectedEntity: classId,
       affectedEntityType: 'class',
       beforeData: { classTeacher: classData.classTeacher },
@@ -247,7 +350,7 @@ export async function removeClassTeacher(
 }
 
 /**
- * Assign subject teacher to a class
+ * ✅ REWRITTEN: Assign subject teacher to a class with auto-cleanup
  */
 export async function assignSubjectTeacher(
   classId: string,
@@ -259,19 +362,45 @@ export async function assignSubjectTeacher(
   performerName: string
 ): Promise<void> {
   try {
+    console.log(`\n🔧 Assigning subject teacher: ${subjectName} in class ${classId}`);
+    
     const classDoc = await getClassById(classId);
     if (!classDoc) {
       throw new Error('Class not found');
     }
 
-    // Check if this subject is already assigned to a teacher
-    const existingAssignment = classDoc.subjectTeachers.find(
+    // Auto-cleanup: Remove orphaned or invalid subject teachers
+    console.log(`🧹 Cleaning up invalid subject teachers...`);
+    const { getTeacherById } = await import('./teacherManagement');
+    const cleanedSubjectTeachers: SubjectTeacherAssignment[] = [];
+    
+    if (classDoc.subjectTeachers && Array.isArray(classDoc.subjectTeachers)) {
+      for (const st of classDoc.subjectTeachers) {
+        if (!st.teacherId || typeof st.teacherId !== 'string' || st.teacherId.trim() === '') {
+          console.log(`   🧹 Removing subject teacher with invalid teacherId`);
+          continue;
+        }
+        
+        const teacherExists = await getTeacherById(st.teacherId);
+        if (teacherExists) {
+          cleanedSubjectTeachers.push(st);
+        } else {
+          console.log(`   🧹 Removing orphaned subject teacher: ${st.teacherName}`);
+        }
+      }
+    }
+
+    console.log(`✅ Cleanup complete. Valid subject teachers: ${cleanedSubjectTeachers.length}`);
+
+    // Check if subject already assigned
+    const existingAssignment = cleanedSubjectTeachers.find(
       st => st.subjectId === subjectId
     );
 
     if (existingAssignment) {
       throw new Error(
-        `Subject ${subjectName} is already taught by ${existingAssignment.teacherName} in this class`
+        `Subject ${subjectName} is already taught by ${existingAssignment.teacherName} in ${classDoc.className}. ` +
+        `Please remove the existing assignment first.`
       );
     }
 
@@ -283,7 +412,7 @@ export async function assignSubjectTeacher(
       assignedDate: new Date()
     };
 
-    const updatedSubjectTeachers = [...classDoc.subjectTeachers, newAssignment];
+    const updatedSubjectTeachers = [...cleanedSubjectTeachers, newAssignment];
 
     const classRef = doc(db, 'classes', classId);
     await updateDoc(classRef, {
@@ -291,7 +420,6 @@ export async function assignSubjectTeacher(
       updatedAt: new Date()
     });
 
-    // Create audit log
     await createDetailedAuditLog({
       userId: performedBy,
       userRole: 'admin',
@@ -304,7 +432,7 @@ export async function assignSubjectTeacher(
       success: true
     });
 
-    console.log('✅ Subject teacher assigned:', classId, subjectId);
+    console.log(`✅ Subject teacher assigned: ${teacherName} -> ${subjectName} in ${classDoc.className}\n`);
   } catch (error) {
     console.error('❌ Error assigning subject teacher:', error);
     throw error;
@@ -326,12 +454,12 @@ export async function removeSubjectTeacher(
       throw new Error('Class not found');
     }
 
-    const updatedSubjectTeachers = classDoc.subjectTeachers.filter(
-      st => st.subjectId !== subjectId
-    );
-
     const removedTeacher = classDoc.subjectTeachers.find(
       st => st.subjectId === subjectId
+    );
+
+    const updatedSubjectTeachers = classDoc.subjectTeachers.filter(
+      st => st.subjectId !== subjectId
     );
 
     const classRef = doc(db, 'classes', classId);
@@ -340,13 +468,12 @@ export async function removeSubjectTeacher(
       updatedAt: new Date()
     });
 
-    // Create audit log
     if (removedTeacher) {
       await createDetailedAuditLog({
         userId: performedBy,
         userRole: 'admin',
         userName: performerName,
-        action: 'SUBJECT_TEACHER_ASSIGNED',
+        action: 'SUBJECT_TEACHER_REMOVED',
         details: `Removed ${removedTeacher.teacherName} from teaching ${removedTeacher.subjectName} in ${classDoc.className}`,
         affectedEntity: classId,
         affectedEntityType: 'class',
@@ -363,7 +490,7 @@ export async function removeSubjectTeacher(
 }
 
 /**
- * NEW: Enroll student in class (add to class roster)
+ * Enroll student in class
  */
 export async function enrollStudentInClass(
   classId: string,
@@ -378,13 +505,11 @@ export async function enrollStudentInClass(
       throw new Error('Class not found');
     }
 
-    // Check if student already enrolled
     if (classDoc.studentIds.includes(studentId)) {
       console.log('⚠️ Student already enrolled in this class');
       return;
     }
 
-    // Check class capacity
     if (classDoc.currentStudentCount >= classDoc.capacity) {
       throw new Error(`Class ${classDoc.className} is at full capacity (${classDoc.capacity} students)`);
     }
@@ -400,7 +525,6 @@ export async function enrollStudentInClass(
       updatedAt: new Date()
     });
 
-    // Create audit log
     await createDetailedAuditLog({
       userId: performedBy,
       userRole: performedBy === 'system' ? 'admin' : 'parent',
@@ -421,7 +545,7 @@ export async function enrollStudentInClass(
 }
 
 /**
- * NEW: Remove student from class roster
+ * Remove student from class roster
  */
 export async function removeStudentFromClass(
   classId: string,
@@ -446,7 +570,6 @@ export async function removeStudentFromClass(
       updatedAt: new Date()
     });
 
-    // Create audit log
     await createDetailedAuditLog({
       userId: performedBy,
       userRole: 'admin',

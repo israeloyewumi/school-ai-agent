@@ -71,6 +71,7 @@ async function handleAdminChat(request: Request, response: Response) {
     // Call the admin chat function
     const aiResponse = await adminChat(
       message,
+      adminId,  // ✅ ADD THIS - it was missing!
       conversationHistory || []
     );
 

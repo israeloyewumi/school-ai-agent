@@ -1,11 +1,9 @@
-// components/admin/PendingParentApprovals.tsx - WITH COMPREHENSIVE DEBUGGING
+// components/admin/PendingParentApprovals.tsx - FIXED: Simplified approval flow
 "use client";
 
 import { useState } from 'react';
 import { PendingParentApproval } from '@/types/database';
 import { approveParent, rejectParent } from '@/lib/firebase/parentManagement';
-import { createStudent } from '@/lib/firebase/studentManagement';
-import { addChildToParent } from '@/lib/firebase/parentManagement';
 
 interface PendingParentApprovalsProps {
   approvals: PendingParentApproval[];
@@ -29,7 +27,7 @@ export default function PendingParentApprovals({
   async function handleApprove(approval: PendingParentApproval) {
     console.log('🔍 ===== PARENT APPROVAL DEBUG START =====');
     console.log('👨‍👩‍👧 Approval Data:', {
-      parentId: approval.parentId,
+      approvalId: approval.id,
       parentName: `${approval.firstName} ${approval.lastName}`,
       email: approval.email,
       childrenCount: approval.children.length
@@ -60,87 +58,18 @@ export default function PendingParentApprovals({
     setError('');
 
     try {
-      // Step 1: Approve the parent
-      console.log('📝 Step 1: Approving parent account...');
-      await approveParent(approval.id!, adminId, adminName);
-      console.log('✅ Parent approved');
-
-      // Step 2: Create student accounts for all children
-      const createdStudentIds: string[] = [];
+      console.log('📝 Starting approval process...');
       
-      console.log('📝 Step 2: Creating student accounts...');
-      for (let i = 0; i < approval.children.length; i++) {
-        const child = approval.children[i];
-        console.log(`\n🎓 Creating student ${i + 1}/${approval.children.length}:`, child.firstName, child.lastName);
-        
-        try {
-          console.log('📤 Sending to createStudent:', {
-            firstName: child.firstName,
-            lastName: child.lastName,
-            dateOfBirth: child.dateOfBirth,
-            gender: child.gender,
-            classId: child.classId,
-            className: child.className,
-            guardianId: approval.parentId,
-            subjects: child.subjects,
-            subjectsCount: child.subjects?.length || 0,
-            academicTrack: child.academicTrack,
-            tradeSubject: child.tradeSubject
-          });
+      // ✅ FIX: Just call approveParent - it handles EVERYTHING now!
+      // - Creates parent record
+      // - Creates all children records
+      // - Links children to parent
+      // - Updates user and approval records
+      await approveParent(approval.id!, adminId, adminName);
+      
+      console.log('✅ Parent and all children approved successfully');
 
-          const studentId = await createStudent({
-            firstName: child.firstName,
-            lastName: child.lastName,
-            dateOfBirth: new Date(child.dateOfBirth),
-            gender: child.gender,
-            classId: child.classId,
-            className: child.className,
-            guardianId: approval.parentId,
-            address: approval.address || '',
-            city: '',
-            state: '',
-            emergencyContact: `${approval.firstName} ${approval.lastName}`,
-            emergencyPhone: approval.phoneNumber || '',
-            subjects: child.subjects || [],
-            academicTrack: child.academicTrack || null,
-            tradeSubject: child.tradeSubject || null
-          }, adminId, adminName);
-          
-          createdStudentIds.push(studentId);
-          console.log(`✅ Student created successfully: ${child.firstName} ${child.lastName} (${studentId})`);
-        } catch (childError) {
-          console.error(`\n❌ ===== ERROR CREATING STUDENT =====`);
-          console.error(`Student: ${child.firstName} ${child.lastName}`);
-          console.error('Error:', childError);
-          console.error('Error message:', (childError as Error).message);
-          console.error('Stack trace:', (childError as Error).stack);
-          console.error('Child data that failed:', {
-            firstName: child.firstName,
-            lastName: child.lastName,
-            classId: child.classId,
-            className: child.className,
-            subjects: child.subjects,
-            subjectsCount: child.subjects?.length || 0,
-            academicTrack: child.academicTrack,
-            tradeSubject: child.tradeSubject
-          });
-          console.error('=====================================\n');
-          
-          throw new Error(`Failed to create student account for ${child.firstName} ${child.lastName}`);
-        }
-      }
-
-      console.log('\n✅ All students created successfully');
-      console.log('Created student IDs:', createdStudentIds);
-
-      // Step 3: Link all children to parent
-      console.log('\n📝 Step 3: Linking children to parent...');
-      for (const studentId of createdStudentIds) {
-        await addChildToParent(approval.parentId, studentId, adminId, adminName);
-      }
-      console.log('✅ All children linked to parent');
-
-      alert(`✅ ${approval.firstName} ${approval.lastName} has been approved!\n\n${createdStudentIds.length} student account(s) created successfully.`);
+      alert(`✅ ${approval.firstName} ${approval.lastName} has been approved!\n\n${approval.children.length} student account(s) created successfully.`);
       console.log('🔍 ===== PARENT APPROVAL DEBUG END (SUCCESS) =====');
       onRefresh();
     } catch (err: any) {
@@ -220,10 +149,10 @@ export default function PendingParentApprovals({
         </div>
       )}
 
-      {/* Debug Info */}
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-        <p className="text-sm text-yellow-800">
-          🐛 <strong>Debug Mode Active:</strong> Check browser console for detailed logs
+      {/* Info Banner */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <p className="text-sm text-blue-800">
+          ℹ️ <strong>Approval Process:</strong> When you approve a parent, the system automatically creates the parent account and all student accounts for their children.
         </p>
       </div>
 
@@ -321,20 +250,6 @@ export default function PendingParentApprovals({
                                 Trade: {child.tradeSubject}
                               </p>
                             )}
-                            {/* Debug: Show actual subject IDs */}
-                            <details className="mt-2">
-                              <summary className="text-xs text-gray-500 cursor-pointer">
-                                🐛 View subject details
-                              </summary>
-                              <pre className="text-xs mt-1 p-2 bg-gray-100 rounded overflow-x-auto">
-{JSON.stringify({
-  subjects: child.subjects,
-  count: child.subjects.length,
-  academicTrack: child.academicTrack,
-  tradeSubject: child.tradeSubject
-}, null, 2)}
-                              </pre>
-                            </details>
                           </div>
                         )}
                       </div>
