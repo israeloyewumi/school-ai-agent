@@ -15,7 +15,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './config';
 import { Class, ClassTeacher, SubjectTeacherAssignment } from '@/types/database';
-import { ALL_CLASSES } from '@/lib/config/schoolData';
+import { ALL_CLASSES, getCurrentAcademicSession, getCurrentTerm } from '@/lib/config/schoolData';
 import { createDetailedAuditLog } from './auditLogs';
 
 /**
@@ -24,6 +24,10 @@ import { createDetailedAuditLog } from './auditLogs';
 export async function initializeAllClasses(): Promise<void> {
   try {
     const batch = writeBatch(db);
+    
+    // Get current academic info dynamically
+    const currentSession = getCurrentAcademicSession();
+    const currentTerm = getCurrentTerm();
 
     for (const classInfo of ALL_CLASSES) {
       const classDoc: Class = {
@@ -39,9 +43,9 @@ export async function initializeAllClasses(): Promise<void> {
         currentStudentCount: 0,
         totalStudents: 0,
         studentIds: [],
-        currentTerm: 'First Term',
-        currentSession: '2025/2026',
-        academicYear: '2025/2026',
+        currentTerm: currentTerm,
+        currentSession: currentSession,
+        academicYear: currentSession,
         createdAt: new Date(),
         updatedAt: new Date()
       };
@@ -51,7 +55,7 @@ export async function initializeAllClasses(): Promise<void> {
     }
 
     await batch.commit();
-    console.log('✅ All classes initialized');
+    console.log(`✅ All classes initialized with session ${currentSession}, term ${currentTerm}`);
   } catch (error) {
     console.error('❌ Error initializing classes:', error);
     throw error;

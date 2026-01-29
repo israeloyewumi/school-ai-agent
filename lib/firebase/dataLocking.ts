@@ -34,10 +34,129 @@ const EDIT_WINDOWS = {
   fee: 90         // 90 days to edit fee records
 };
 
+// ADD THIS FUNCTION TO dataLocking.ts (OVERLOAD for grade/assessment checking)
+// This is the version that grade entry components need
+
 /**
- * Check if a record is within the edit window
+ * Check if grades can be submitted for a specific term/session/assessment
+ * This is an OVERLOADED version for grade submission validation
  */
-export function isWithinEditWindow(
+export async function isWithinEditWindow(
+  term: string,
+  session: string,
+  assessmentType: 'classwork' | 'homework' | 'ca1' | 'ca2' | 'exam',
+  classId: string
+): Promise<{
+  allowed: boolean;
+  reason?: string;
+}> {
+  try {
+    // For grade submission, we check if we're within the current academic term
+    // and if the specific assessment type is still open for recording
+    
+    // Get current academic session and term
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1; // 1-12
+    
+    // Determine current academic session (e.g., "2024/2025")
+    let academicYear: string;
+    if (currentMonth >= 9) {
+      // September onwards is new academic year
+      academicYear = `${currentYear}/${currentYear + 1}`;
+    } else {
+      academicYear = `${currentYear - 1}/${currentYear}`;
+    }
+    
+    // Determine current term based on month
+    let currentTerm: string;
+    if (currentMonth >= 9 && currentMonth <= 12) {
+      currentTerm = 'First Term';
+    } else if (currentMonth >= 1 && currentMonth <= 4) {
+      currentTerm = 'Second Term';
+    } else {
+      currentTerm = 'Third Term';
+    }
+    
+    // Check if the requested term/session matches current term/session
+    if (session !== academicYear) {
+      return {
+        allowed: false,
+        reason: `Cannot record grades for past session. Current session is ${academicYear}, you're trying to record for ${session}.`
+      };
+    }
+    
+    if (term !== currentTerm) {
+      return {
+        allowed: false,
+        reason: `Cannot record grades for different term. Current term is ${currentTerm}, you're trying to record for ${term}.`
+      };
+    }
+    
+    // Define cutoff dates for each assessment type (example - adjust as needed)
+    // These represent when each assessment should be completed
+    const assessmentCutoffs: Record<string, { month: number, day: number }> = {
+      'First Term': {
+        classwork: { month: 10, day: 31 },   // End of October
+        homework: { month: 11, day: 15 },    // Mid November
+        ca1: { month: 11, day: 30 },         // End of November
+        ca2: { month: 12, day: 10 },         // Early December
+        exam: { month: 12, day: 20 }         // Late December
+      },
+      'Second Term': {
+        classwork: { month: 2, day: 28 },
+        homework: { month: 3, day: 15 },
+        ca1: { month: 3, day: 31 },
+        ca2: { month: 4, day: 10 },
+        exam: { month: 4, day: 20 }
+      },
+      'Third Term': {
+        classwork: { month: 6, day: 30 },
+        homework: { month: 7, day: 15 },
+        ca1: { month: 7, day: 31 },
+        ca2: { month: 8, day: 10 },
+        exam: { month: 8, day: 20 }
+      }
+    };
+    
+    // For now, allow all grade submissions during the current term
+    // You can implement stricter rules based on assessment cutoffs above
+    
+    // Allow 7-day grace period after cutoff
+    const gracePeriodDays = 7;
+    
+    // Check if we have a cutoff for this term and assessment
+    const termCutoffs = assessmentCutoffs[currentTerm];
+    if (termCutoffs && termCutoffs[assessmentType]) {
+      const cutoff = termCutoffs[assessmentType];
+      const cutoffDate = new Date(currentYear, cutoff.month - 1, cutoff.day);
+      cutoffDate.setDate(cutoffDate.getDate() + gracePeriodDays);
+      
+      if (now > cutoffDate) {
+        return {
+          allowed: false,
+          reason: `${assessmentType.toUpperCase()} submission deadline has passed. Deadline was ${cutoffDate.toLocaleDateString()}.`
+        };
+      }
+    }
+    
+    // All checks passed
+    return {
+      allowed: true
+    };
+    
+  } catch (error) {
+    console.error('Error checking edit window:', error);
+    // On error, allow submission but log the error
+    return {
+      allowed: true,
+      reason: 'Warning: Could not verify submission window, proceeding...'
+    };
+  }
+}
+
+// Keep the original function with different name for backward compatibility
+export function isWithinEditWindowByDate(
   recordDate: Date,
   entityType: 'attendance' | 'grade' | 'merit' | 'fee'
 ): boolean {

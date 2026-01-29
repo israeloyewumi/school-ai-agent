@@ -12,7 +12,7 @@ import ManualMeritAward from './ManualMeritAward';
 import LessonNoteUploader from './LessonNoteUploader';
 import WeeklyHistoryReport from './WeeklyHistoryReport';
 import { getTeacherClasses, getStudentsByClass, getTeacher } from '@/lib/firebase/db';
-import { ALL_SUBJECTS, getSubjectsForGrade, getClassById } from '@/lib/config/schoolData';
+import { ALL_SUBJECTS, getSubjectsForGrade, getClassById, getCurrentAcademicSession, getCurrentTerm } from '@/lib/config/schoolData';
 import { Student } from '@/types/database';
 
 
@@ -52,6 +52,12 @@ export default function TeacherDashboard({ user, onClose }: TeacherDashboardProp
   const [attendanceMode, setAttendanceMode] = useState<AttendanceMode>('hybrid');
   const [gradeEntryMode, setGradeEntryMode] = useState<GradeEntryMode>('manual');
   const [meritMode, setMeritMode] = useState<MeritMode>('manual'); // NEW: Default to manual
+
+  // ✅ NEW: Dynamic session and term management
+  const currentSession = getCurrentAcademicSession();
+  const currentTerm = getCurrentTerm();
+  const [selectedSession, setSelectedSession] = useState<string>(currentSession);
+  const [selectedTerm, setSelectedTerm] = useState<string>(currentTerm);
 
   const teacherId = user.teacherId || user.id;
   const teacherName = `${user.firstName} ${user.lastName}`;
@@ -713,8 +719,8 @@ function getMaxScore(assessmentType: 'classwork' | 'homework' | 'ca1' | 'ca2' | 
               className={selectedClass.name}
               totalStudents={selectedClass.students.length}
               studentList={selectedClass.students}
-              term="First Term"
-              session="2024/2025"
+              term={selectedTerm}
+              session={selectedSession}
               onComplete={() => {
                 setActiveTool(null);
                 setSelectedClass(null);
@@ -729,8 +735,8 @@ function getMaxScore(assessmentType: 'classwork' | 'homework' | 'ca1' | 'ca2' | 
               className={selectedClass.name}
               totalStudents={selectedClass.students.length}
               studentList={selectedClass.students}
-              term="First Term"
-              session="2024/2025"
+              term={selectedTerm}
+              session={selectedSession}
               onComplete={() => {
                 setActiveTool(null);
                 setSelectedClass(null);
@@ -754,8 +760,8 @@ function getMaxScore(assessmentType: 'classwork' | 'homework' | 'ca1' | 'ca2' | 
               subjectName={selectedSubject.name}
               assessmentType={selectedAssessment}
               studentList={selectedClass.students}
-              term="First Term"
-              session="2024/2025"
+              term={selectedTerm}
+              session={selectedSession}
               maxScore={getMaxScore(selectedAssessment)}
               onComplete={() => {
                 setActiveTool(null);
@@ -775,8 +781,8 @@ function getMaxScore(assessmentType: 'classwork' | 'homework' | 'ca1' | 'ca2' | 
               subjectName={selectedSubject.name}
               assessmentType={selectedAssessment}
               studentList={selectedClass.students}
-              term="First Term"
-              session="2024/2025"
+              term={selectedTerm}
+              session={selectedSession}
               maxScore={getMaxScore(selectedAssessment)}
               onComplete={() => {
                 setActiveTool(null);
@@ -800,8 +806,8 @@ function getMaxScore(assessmentType: 'classwork' | 'homework' | 'ca1' | 'ca2' | 
               classId={selectedClass.id}
               className={selectedClass.name}
               studentList={selectedClass.students}
-              term="First Term"
-              session="2024/2025"
+              term={selectedTerm}
+              session={selectedSession}
               onComplete={() => {
                 setActiveTool(null);
                 setSelectedClass(null);
@@ -815,8 +821,8 @@ function getMaxScore(assessmentType: 'classwork' | 'homework' | 'ca1' | 'ca2' | 
               classId={selectedClass.id}
               className={selectedClass.name}
               studentList={selectedClass.students}
-              term="First Term"
-              session="2024/2025"
+              term={selectedTerm}
+              session={selectedSession}
               onComplete={() => {
                 setActiveTool(null);
                 setSelectedClass(null);

@@ -18,6 +18,7 @@ import {
   QueryConstraint
 } from 'firebase/firestore';
 import { db } from './config';
+import { getCurrentAcademicSession, getCurrentTerm } from '@/lib/config/schoolData';
 
 // Type imports
 import type {
@@ -676,7 +677,7 @@ export async function getStudentMeritSummary(
 }
 
 // ============================================
-// RESULTS OPERATIONS
+// RESULTS OPERATIONS  
 // ============================================
 
 export async function recordResult(result: Omit<Result, 'id'>): Promise<string> {
@@ -1307,4 +1308,33 @@ export async function getClassMeritLeaderboard(
     console.error('Error fetching class merit leaderboard:', error);
     throw error;
   }
+}
+/**
+ * ✅ NEW: Record result with automatic session and term calculation
+ * Use this helper when you want automatic session/term based on current date
+ * 
+ * Example:
+ *   recordResultWithCurrentSession({
+ *     studentId: 'student123',
+ *     classId: 'class456',
+ *     subjectId: 'math',
+ *     assessmentType: 'exam',
+ *     score: 85,
+ *     maxScore: 100,
+ *     // session and term will be auto-calculated
+ *   })
+ */
+export async function recordResultWithCurrentSession(
+  result: Omit<Result, 'id' | 'session' | 'term'> & { session?: string; term?: string }
+): Promise<string> {
+  const session = result.session || getCurrentAcademicSession();
+  const term = result.term || getCurrentTerm();
+  
+  const fullResult: Omit<Result, 'id'> = {
+    ...result,
+    session,
+    term
+  };
+  
+  return recordResult(fullResult);
 }

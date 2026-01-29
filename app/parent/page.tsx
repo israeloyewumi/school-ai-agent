@@ -7,14 +7,16 @@ import { getStudentDashboardData, type StudentDashboardData } from '@/lib/fireba
 import { getCurrentUser } from '@/lib/auth/authService';
 import ParentChatAssistant from '@/components/parent/ParentChatAssistant';
 import { useRouter } from 'next/navigation';
+import { getCurrentAcademicSession, getCurrentTerm } from '@/lib/config/schoolData';
 
 export default function ParentDashboard() {
   const router = useRouter();
   const [dashboardData, setDashboardData] = useState<StudentDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [term] = useState('First Term');
-  const [session] = useState('2025/2026');
+  // ✅ FIX: Use dynamic session and term instead of hardcoded values
+  const [term] = useState(getCurrentTerm());              // Now returns "Second Term" for January 2026
+  const [session] = useState(getCurrentAcademicSession()); // Now returns "2025/2026"
   const [lastChildId, setLastChildId] = useState('');
 
   // 🆕 REDIRECT TO ATLAS AI ON FIRST VISIT

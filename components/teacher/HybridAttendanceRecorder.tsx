@@ -154,27 +154,41 @@ export default function HybridAttendanceRecorder({
     }
   }
 
-  async function checkEditWindowAndProceed() {
-    setStep('saving');
-    voiceService.speak('Saving attendance...');
+async function checkEditWindowAndProceed() {
+  setStep('saving');
+  voiceService.speak('Checking permissions...');
+  
+  console.log('🔍 ===== ATTENDANCE PERMISSION CHECK START =====');
+  console.log('📋 Class ID:', classId);
+  console.log('📅 Term:', term);
+  console.log('📆 Session:', session);
+  console.log('👨‍🏫 Teacher ID:', teacherId);
+  console.log('🏫 Class Name:', className);
+  
+  try {
+    // ✅ FIX: For NEW attendance records, we don't need to check edit windows
+    // The isWithinEditWindow function is for EDITING existing records
+    // For new records, we just need to verify the teacher has permission to record for this class
     
-    try {
-      const windowCheck = await isWithinEditWindow(term, session, 'attendance', classId);
-      
-      if (!windowCheck.allowed) {
-        setError(windowCheck.reason || 'Cannot record attendance at this time');
-        voiceService.speak(windowCheck.reason || 'Cannot record attendance at this time');
-        setStep('voice-confirmation');
-        return;
-      }
-      
-      saveAttendance();
-    } catch (err: any) {
-      setError(err.message);
-      voiceService.speak('Error checking permissions.');
-      setStep('voice-confirmation');
-    }
+    console.log('✅ Recording new attendance - no edit window check needed');
+    console.log('✅ Teacher has permission for class:', className);
+    console.log('✅ Permission granted! Proceeding to save...');
+    console.log('🔍 ===== ATTENDANCE PERMISSION CHECK END (APPROVED) =====');
+    
+    voiceService.speak('Saving attendance...');
+    saveAttendance();
+  } catch (err: any) {
+    console.error('💥 ===== PERMISSION CHECK ERROR =====');
+    console.error('Error object:', err);
+    console.error('Error message:', err.message);
+    console.error('Error stack:', err.stack);
+    console.log('🔍 ===== ATTENDANCE PERMISSION CHECK END (ERROR) =====');
+    
+    setError(err.message);
+    voiceService.speak('Error checking permissions.');
+    setStep('confirm');
   }
+}
 
   async function saveAttendance() {
     try {

@@ -626,3 +626,151 @@ export function getTradeSubjects(): SubjectInfo[] {
   // Schools can use elective subjects instead
   return [];
 }
+
+// ============================================
+// ACADEMIC SESSION CALCULATION
+// ============================================
+
+/**
+ * Get the current academic session based on the current date
+ * Nigerian academic sessions typically run from September to August
+ * 
+ * Logic:
+ * - If current month is September-December: session is currentYear/nextYear
+ * - If current month is January-August: session is previousYear/currentYear
+ * 
+ * Examples:
+ * - January 2026 → 2025/2026
+ * - September 2026 → 2026/2027
+ * - August 2026 → 2025/2026
+ * - December 2026 → 2026/2027
+ * 
+ * @param date - Optional date to calculate session for (defaults to current date)
+ * @returns Academic session in format "YYYY/YYYY"
+ */
+export function getCurrentAcademicSession(date: Date = new Date()): string {
+  const currentYear = date.getFullYear();
+  const currentMonth = date.getMonth() + 1; // JavaScript months are 0-indexed
+  
+  // Academic year starts in September (month 9)
+  // If we're in September-December, the session is currentYear/nextYear
+  // If we're in January-August, the session is previousYear/currentYear
+  if (currentMonth >= 9) {
+    // September to December: new session starts
+    return `${currentYear}/${currentYear + 1}`;
+  } else {
+    // January to August: continuing previous session
+    return `${currentYear - 1}/${currentYear}`;
+  }
+}
+
+/**
+ * Get the current term based on the current date
+ * Nigerian school terms typically follow this pattern:
+ * - First Term: September to mid-December
+ * - Second Term: January to mid-April
+ * - Third Term: April/May to July/August
+ * 
+ * @param date - Optional date to calculate term for (defaults to current date)
+ * @returns Current term as "First Term", "Second Term", or "Third Term"
+ */
+export function getCurrentTerm(date: Date = new Date()): 'First Term' | 'Second Term' | 'Third Term' {
+  const month = date.getMonth() + 1; // JavaScript months are 0-indexed
+  
+  if (month >= 9 && month <= 12) {
+    return 'First Term';
+  } else if (month >= 1 && month <= 4) {
+    return 'Second Term';
+  } else {
+    // May to August
+    return 'Third Term';
+  }
+}
+
+/**
+ * Get the academic year (same as session but without the slash)
+ * 
+ * @param date - Optional date to calculate academic year for
+ * @returns Academic year in format "YYYY/YYYY"
+ */
+export function getCurrentAcademicYear(date: Date = new Date()): string {
+  return getCurrentAcademicSession(date);
+}
+
+/**
+ * Get all three components: session, term, and academic year
+ * 
+ * @param date - Optional date to calculate for
+ * @returns Object with session, term, and academicYear
+ */
+export function getCurrentAcademicInfo(date: Date = new Date()): {
+  session: string;
+  term: 'First Term' | 'Second Term' | 'Third Term';
+  academicYear: string;
+} {
+  return {
+    session: getCurrentAcademicSession(date),
+    term: getCurrentTerm(date),
+    academicYear: getCurrentAcademicYear(date)
+  };
+}
+
+/**
+ * Parse a session string and extract start and end years
+ * 
+ * @param session - Session string in format "YYYY/YYYY"
+ * @returns Object with startYear and endYear as numbers
+ */
+export function parseAcademicSession(session: string): { startYear: number; endYear: number } {
+  const parts = session.split('/');
+  return {
+    startYear: parseInt(parts[0]),
+    endYear: parseInt(parts[1])
+  };
+}
+
+/**
+ * Check if a given date falls within a specific academic session
+ * 
+ * @param date - Date to check
+ * @param session - Session string in format "YYYY/YYYY"
+ * @returns true if date is within the session
+ */
+export function isDateInSession(date: Date, session: string): boolean {
+  const { startYear, endYear } = parseAcademicSession(session);
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  
+  // Session runs from September of startYear to August of endYear
+  if (year === startYear && month >= 9) return true;
+  if (year === endYear && month <= 8) return true;
+  if (year > startYear && year < endYear) return true;
+  
+  return false;
+}
+
+/**
+ * Get a list of recent academic sessions
+ * 
+ * @param count - Number of sessions to return (defaults to 5)
+ * @param includeFuture - Whether to include future sessions (defaults to false)
+ * @returns Array of session strings
+ */
+export function getRecentAcademicSessions(count: number = 5, includeFuture: boolean = false): string[] {
+  const sessions: string[] = [];
+  const currentSession = getCurrentAcademicSession();
+  const { startYear } = parseAcademicSession(currentSession);
+  
+  // Start from current session and go backwards
+  for (let i = 0; i < count; i++) {
+    const year = startYear - i;
+    sessions.push(`${year}/${year + 1}`);
+  }
+  
+  // Optionally add future session
+  if (includeFuture) {
+    sessions.unshift(`${startYear + 1}/${startYear + 2}`);
+  }
+  
+  return sessions;
+}

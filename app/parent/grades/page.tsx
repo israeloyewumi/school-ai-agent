@@ -6,6 +6,7 @@
 
 import { useState, useEffect } from 'react';
 import { getDetailedGradeRecords } from '@/lib/firebase/parentAccess';
+import { getCurrentAcademicSession, getCurrentTerm } from '@/lib/config/schoolData';
 
 interface GradeRecord {
   id: string;
@@ -22,8 +23,8 @@ export default function GradesPage() {
   const [records, setRecords] = useState<GradeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'classwork' | 'homework' | 'ca1' | 'ca2' | 'exam'>('all');
-  const [term] = useState('First Term');
-  const [session] = useState('2025/2026');
+  const [term] = useState(getCurrentTerm());              // ✅ Dynamic - currently "Second Term"
+  const [session] = useState(getCurrentAcademicSession()); // ✅ Dynamic - currently "2025/2026"
 
   useEffect(() => {
     loadGradeRecords();

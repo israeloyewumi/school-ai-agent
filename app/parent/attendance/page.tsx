@@ -4,6 +4,7 @@
 
 import { useState, useEffect } from 'react';
 import { getDetailedAttendanceRecords } from '@/lib/firebase/parentAccess';
+import { getCurrentAcademicSession, getCurrentTerm } from '@/lib/config/schoolData';
 
 interface AttendanceRecord {
   id: string;
@@ -18,8 +19,10 @@ export default function AttendancePage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'present' | 'absent' | 'late' | 'excused'>('all');
-  const [term] = useState('First Term');
-  const [session] = useState('2025/2026');
+  
+  // ✅ FIX: Use dynamic session and term
+  const [term] = useState(getCurrentTerm());
+  const [session] = useState(getCurrentAcademicSession());
 
   useEffect(() => {
     loadAttendanceRecords();

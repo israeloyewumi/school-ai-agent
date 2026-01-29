@@ -1,18 +1,19 @@
-// app/parent/fees/page.tsx - Parent Fee Information Page (FIXED SESSION)
+// app/parent/fees/page.tsx - Parent Fee Information Page (FIXED - DYNAMIC TERM)
 
 'use client';
 
 import { useState, useEffect } from 'react';
 import { getStudentFeeStatus, type FeeStatus } from '@/lib/firebase/parentAccess';
+import { getCurrentAcademicSession, getCurrentTerm } from '@/lib/config/schoolData';
 
 export default function FeesPage() {
   const [feeStatus, setFeeStatus] = useState<FeeStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
-  // ✅ FIXED: Use current session 2025-2026 instead of 2024/2025
-  const [term] = useState('First Term');
-  const [session] = useState('2025/2026'); // ✅ CHANGED: Use slashes
+  // ✅ FIXED: Use dynamic term and session - will automatically use "Second Term" and "2025/2026"
+  const [term] = useState(getCurrentTerm());              
+  const [session] = useState(getCurrentAcademicSession()); 
 
   useEffect(() => {
     loadFeeStatus();

@@ -4,6 +4,7 @@
 
 import { useState, useEffect } from 'react';
 import { getDetailedMeritRecords } from '@/lib/firebase/parentAccess';
+import { getCurrentAcademicSession, getCurrentTerm } from '@/lib/config/schoolData';
 
 interface MeritRecord {
   id: string;
@@ -19,8 +20,8 @@ export default function MeritsPage() {
   const [records, setRecords] = useState<MeritRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'positive' | 'negative'>('all');
-  const [term] = useState('First Term');
-  const [session] = useState('2025/2026');
+  const [term] = useState(getCurrentTerm());              // ✅ Dynamic - currently "Second Term"
+  const [session] = useState(getCurrentAcademicSession()); // ✅ Dynamic - currently "2025/2026"
 
   useEffect(() => {
     loadMeritRecords();
