@@ -1,4 +1,4 @@
-// lib/services/whatsappService.ts - Client-side version for Next.js app
+// lib/services/whatsappService.ts - FIXED VERSION WITH FREE HOSTING
 
 import { getParentById } from '@/lib/firebase/parentManagement';
 
@@ -9,8 +9,92 @@ interface WhatsAppMessageOptions {
 }
 
 /**
+ * Upload PDF using FREE hosting services (no tokens needed)
+ */
+async function uploadPDFToBlob(pdfBlob: Blob, fileName: string): Promise<string | null> {
+  try {
+    console.log('📤 Uploading PDF using free HTTPS hosting...');
+    
+    const formData = new FormData();
+    const pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
+    formData.append('file', pdfFile);
+    
+    console.log('📄 File size:', pdfBlob.size, 'bytes');
+    
+    // Method 1: Try file.io (gives HTTPS URLs)
+    try {
+      console.log('🔄 Trying file.io...');
+      const response = await fetch('https://file.io', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.link) {
+          console.log('✅ PDF uploaded to file.io:', result.link);
+          return result.link;
+        }
+      }
+    } catch (error) {
+      console.log('⚠️ file.io failed, trying next service...');
+    }
+    
+    // Method 2: Try 0x0.st (free, HTTPS)
+    try {
+      console.log('🔄 Trying 0x0.st...');
+      const oxFormData = new FormData();
+      oxFormData.append('file', pdfFile);
+      
+      const response = await fetch('https://0x0.st', {
+        method: 'POST',
+        body: oxFormData
+      });
+      
+      if (response.ok) {
+        const url = await response.text();
+        const cleanUrl = url.trim();
+        console.log('✅ PDF uploaded to 0x0.st:', cleanUrl);
+        return cleanUrl;
+      }
+    } catch (error) {
+      console.log('⚠️ 0x0.st failed, trying next service...');
+    }
+    
+    // Method 3: Try tmpfiles.org (convert to HTTPS)
+    try {
+      console.log('🔄 Trying tmpfiles.org...');
+      const response = await fetch('https://tmpfiles.org/api/v1/upload', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        if (result.data && result.data.url) {
+          // Convert to HTTPS direct download link
+          const httpsUrl = result.data.url
+            .replace('http://', 'https://')
+            .replace('tmpfiles.org/', 'tmpfiles.org/dl/');
+          console.log('✅ PDF uploaded to tmpfiles.org:', httpsUrl);
+          return httpsUrl;
+        }
+      }
+    } catch (error) {
+      console.log('⚠️ tmpfiles.org failed');
+    }
+    
+    console.error('❌ All free upload services failed');
+    return null;
+    
+  } catch (error) {
+    console.error('❌ Error uploading PDF:', error);
+    return null;
+  }
+}
+
+/**
  * Send WhatsApp message via Twilio API
- * Client-side version (uses browser fetch)
  */
 export async function sendWhatsAppMessage(options: WhatsAppMessageOptions): Promise<{
   success: boolean;
@@ -20,7 +104,6 @@ export async function sendWhatsAppMessage(options: WhatsAppMessageOptions): Prom
     console.log('🚀 Starting WhatsApp send...');
     console.log('📱 To:', options.to);
     
-    // Get credentials from environment variables
     const accountSid = process.env.NEXT_PUBLIC_TWILIO_ACCOUNT_SID;
     const authToken = process.env.NEXT_PUBLIC_TWILIO_AUTH_TOKEN;
     const from = process.env.NEXT_PUBLIC_TWILIO_WHATSAPP_NUMBER;
@@ -32,23 +115,19 @@ export async function sendWhatsAppMessage(options: WhatsAppMessageOptions): Prom
     if (!accountSid || !authToken || !from) {
       const error = 'Twilio credentials not configured';
       console.error('❌', error);
-      return {
-        success: false,
-        error
-      };
+      return { success: false, error };
     }
 
     // Format phone number
     let phoneNumber = options.to;
     console.log('📞 Original number:', phoneNumber);
     
-    // Add Nigeria country code if not present
     if (!phoneNumber.startsWith('+')) {
       phoneNumber = '+234' + phoneNumber.replace(/^0+/, '');
       console.log('📞 Formatted to:', phoneNumber);
     }
 
-    // Validate: Make sure "To" and "From" are different
+    // Check: Make sure "To" and "From" are different
     if (phoneNumber === from) {
       console.error('❌ Cannot send to same number as Twilio number');
       return {
@@ -57,7 +136,6 @@ export async function sendWhatsAppMessage(options: WhatsAppMessageOptions): Prom
       };
     }
 
-    // Prepare Twilio API payload
     const payload: any = {
       From: `whatsapp:${from}`,
       To: `whatsapp:${phoneNumber}`,
@@ -70,7 +148,6 @@ export async function sendWhatsAppMessage(options: WhatsAppMessageOptions): Prom
       Body: options.message.substring(0, 50) + '...'
     });
 
-    // Add media URL if provided
     if (options.mediaUrl) {
       // Ensure URL is valid for Twilio (must be HTTPS)
       if (!options.mediaUrl.startsWith('https://')) {
@@ -81,7 +158,7 @@ export async function sendWhatsAppMessage(options: WhatsAppMessageOptions): Prom
         };
       }
       payload.MediaUrl = options.mediaUrl;
-      console.log('🖼️ Media URL:', options.mediaUrl);
+      console.log('📎 Media URL:', options.mediaUrl);
     }
 
     console.log('🌐 Sending to Twilio...');
@@ -89,7 +166,6 @@ export async function sendWhatsAppMessage(options: WhatsAppMessageOptions): Prom
     // Create basic auth header
     const authHeader = 'Basic ' + btoa(`${accountSid}:${authToken}`);
 
-    // Make request to Twilio API
     const response = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
       {
@@ -103,7 +179,6 @@ export async function sendWhatsAppMessage(options: WhatsAppMessageOptions): Prom
     );
 
     console.log('📡 Response status:', response.status);
-
     const result = await response.json();
     console.log('📨 Response data:', result);
 
@@ -128,37 +203,7 @@ export async function sendWhatsAppMessage(options: WhatsAppMessageOptions): Prom
 }
 
 /**
- * Upload PDF to Vercel Blob Storage and get public URL
- * Client-side version
- */
-async function uploadPDFToBlob(pdfBlob: Blob, fileName: string): Promise<string | null> {
-  try {
-    console.log('📤 Uploading PDF to Vercel Blob:', fileName);
-    
-    // Convert Blob to File
-    const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
-    
-    // Use Vercel Blob API
-    const { put } = await import('@vercel/blob');
-    
-    const blob = await put(fileName, file, {
-      access: 'public',
-      addRandomSuffix: true
-    });
-    
-    console.log('✅ PDF uploaded successfully');
-    console.log('🔗 Public URL:', blob.url);
-    
-    return blob.url;
-  } catch (error: any) {
-    console.error('❌ Error uploading PDF:', error);
-    return null;
-  }
-}
-
-/**
  * Send report card to parent via WhatsApp
- * Client-side version (uses Blob instead of Buffer)
  */
 export async function sendReportCardToParent(
   parentId: string,
@@ -169,15 +214,11 @@ export async function sendReportCardToParent(
   try {
     console.log('👨‍👩‍👧 Looking up parent:', parentId);
     
-    // Get parent info
     const parent = await getParentById(parentId);
     
     if (!parent) {
       console.error('❌ Parent not found:', parentId);
-      return {
-        success: false,
-        error: 'Parent not found'
-      };
+      return { success: false, error: 'Parent not found' };
     }
     
     console.log('👤 Found parent:', parent.firstName, parent.lastName);
@@ -185,10 +226,7 @@ export async function sendReportCardToParent(
 
     if (!parent.phoneNumber) {
       console.error('❌ Parent has no phone number');
-      return {
-        success: false,
-        error: 'Parent has no phone number'
-      };
+      return { success: false, error: 'Parent has no phone number' };
     }
 
     // Generate filename
@@ -197,13 +235,13 @@ export async function sendReportCardToParent(
     const sanitizedReportType = reportType.replace(/[^a-z0-9]/gi, '_').toLowerCase();
     const fileName = `${sanitizedStudentName}_${sanitizedReportType}_${timestamp}.pdf`;
     
-    console.log('📄 Uploading PDF:', fileName);
+    console.log('📄 Processing PDF:', fileName);
 
-    // Upload PDF to Vercel Blob
+    // Upload PDF using free hosting services
     const publicUrl = await uploadPDFToBlob(pdfBlob, fileName);
     
     if (!publicUrl) {
-      console.error('❌ Failed to upload PDF');
+      console.error('❌ Failed to upload PDF to free hosting');
       // Send WhatsApp without PDF attachment
       const messageWithoutPDF = `
 Hello ${parent.firstName} ${parent.lastName},
@@ -256,15 +294,27 @@ School Administration
     if (result.success) {
       console.log('✅ WhatsApp sent with PDF attachment!');
       
-      return { 
-        success: true, 
-        publicUrl: publicUrl 
-      };
+      // Auto-download PDF for admin (optional - won't break if it fails)
+      try {
+        if (typeof window !== 'undefined' && pdfBlob instanceof Blob) {
+          const adminDownloadUrl = URL.createObjectURL(pdfBlob);
+          const link = document.createElement('a');
+          link.href = adminDownloadUrl;
+          link.download = fileName;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(adminDownloadUrl);
+          console.log('📥 PDF also downloaded for admin');
+        }
+      } catch (downloadError) {
+        console.log('⚠️ Auto-download skipped (not critical)');
+        // Not critical - WhatsApp delivery succeeded
+      }
+      
+      return { success: true, publicUrl: publicUrl };
     } else {
-      return {
-        success: false,
-        error: result.error
-      };
+      return { success: false, error: result.error };
     }
   } catch (error: any) {
     console.error('❌ Error in sendReportCardToParent:', error);

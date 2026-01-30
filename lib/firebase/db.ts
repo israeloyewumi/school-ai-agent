@@ -610,7 +610,7 @@ async function updateStudentMeritSummary(
       const newTotal = Math.max(0, points);
       const level = getMeritLevel(newTotal);
       
-      await updateDoc(summaryRef, {
+      await setDoc(summaryRef, {
         studentId: studentDocId,
         term,
         session,
@@ -618,6 +618,7 @@ async function updateStudentMeritSummary(
         level: level,
         rank: 0,
         classRank: 0,
+        createdAt: serverTimestamp(),
         lastUpdated: serverTimestamp()
       });
     }

@@ -29,7 +29,7 @@ export default function DailyTeacherRecordings({ adminId, adminName }: DailyTeac
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const term = "First Term";
+  const term = "Second Term";
   const session = "2025/2026";
 
   // Load data when date changes

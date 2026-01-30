@@ -1,10 +1,11 @@
-// functions/src/lib/services/pdfGenerator.ts - Admin SDK Version
-// PDF Generation for Cloud Functions
+// lib/services/pdfGenerator.ts - CLIENT-SIDE VERSION
+// PDF Generation for Browser (returns Blob instead of Buffer)
 
 import jsPDF from 'jspdf';
 
-// Import types from Admin SDK version
-import type { CAReportCard, EndOfTermReportCard } from '../firebase/adminReports';
+// Import types
+import type { CAReportCard, EndOfTermReportCard } from '@/lib/firebase/reports';
+
 // Extended report card interfaces with curriculum info
 interface EnhancedCAReportCard extends CAReportCard {
   academicTrack?: string | null;
@@ -24,9 +25,9 @@ interface EnhancedTermReportCard extends EndOfTermReportCard {
 
 /**
  * Generate CA Report Card PDF
- * Returns Buffer instead of Blob for Cloud Functions compatibility
+ * Returns Blob for browser compatibility
  */
-export async function generateCAReportCardPDF(reportCard: EnhancedCAReportCard): Promise<Buffer> {
+export async function generateCAReportCardPDF(reportCard: EnhancedCAReportCard): Promise<Blob> {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   
@@ -146,16 +147,15 @@ export async function generateCAReportCardPDF(reportCard: EnhancedCAReportCard):
   doc.setFontSize(8);
   doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 20, 280);
   
-  // Return as Buffer for Cloud Functions
-  const pdfBuffer = Buffer.from(doc.output('arraybuffer'));
-  return pdfBuffer;
+  // Return as Blob for browser compatibility
+  return doc.output('blob');
 }
 
 /**
  * Generate Term Report Card PDF
- * Returns Buffer instead of Blob for Cloud Functions compatibility
+ * Returns Blob for browser compatibility
  */
-export async function generateTermReportCardPDF(reportCard: EnhancedTermReportCard): Promise<Buffer> {
+export async function generateTermReportCardPDF(reportCard: EnhancedTermReportCard): Promise<Blob> {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   
@@ -370,16 +370,15 @@ export async function generateTermReportCardPDF(reportCard: EnhancedTermReportCa
   doc.setFontSize(8);
   doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 20, 280);
   
-  // Return as Buffer for Cloud Functions
-  const pdfBuffer = Buffer.from(doc.output('arraybuffer'));
-  return pdfBuffer;
+  // Return as Blob for browser compatibility
+  return doc.output('blob');
 }
 
 /**
  * Generate Weekly Report Card PDF
- * Returns Buffer for Cloud Functions compatibility
+ * Returns Blob for browser compatibility
  */
-export async function generateWeeklyReportCardPDF(reportCard: any): Promise<Buffer> {
+export async function generateWeeklyReportCardPDF(reportCard: any): Promise<Blob> {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   
@@ -412,16 +411,38 @@ export async function generateWeeklyReportCardPDF(reportCard: any): Promise<Buff
   doc.text(`Term: ${reportCard.term}`, 25, yPos + 12);
   doc.text(`Session: ${reportCard.session}`, 25, yPos + 18);
   
-  // The rest of the weekly report implementation follows the same pattern...
-  // (Keeping code concise - full implementation matches original)
-  
   // Footer
   doc.setFontSize(8);
   doc.setTextColor(100, 100, 100);
   const genDate = reportCard.generatedAt instanceof Date ? reportCard.generatedAt : new Date(reportCard.generatedAt);
   doc.text(`Generated on: ${genDate.toLocaleDateString()} at ${genDate.toLocaleTimeString()}`, 20, 280);
   
-  // Return as Buffer
-  const pdfBuffer = Buffer.from(doc.output('arraybuffer'));
-  return pdfBuffer;
+  // Return as Blob for browser compatibility
+  return doc.output('blob');
+}
+
+/**
+ * Helper function to download a PDF Blob
+ */
+export function downloadPDF(pdfBlob: Blob, filename: string): void {
+  try {
+    // Create download link
+    const url = URL.createObjectURL(pdfBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    
+    // Trigger download
+    document.body.appendChild(link);
+    link.click();
+    
+    // Cleanup
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    console.log('✅ PDF downloaded:', filename);
+  } catch (error) {
+    console.error('❌ Error downloading PDF:', error);
+    throw error;
+  }
 }
